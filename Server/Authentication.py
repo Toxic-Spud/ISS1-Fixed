@@ -1,0 +1,266 @@
+from datetime import datetime as dTime, timedelta
+from log import ALERT_LOGGER, INFO_LOGGER
+from database import AUTH_DATA_BASE
+from ServerCrypto import check_pass
+from communicate import Communicate
+from pyotp import TOTP
+import hashlib
+
+
+
+
+
+def customer_login(username, password, totp):
+    ip = Communicate.ADDR[0]
+    if username == None or password == None or totp == None:
+        Communicate.send("fail", ["Womp Womp!"])
+        raise Exception("Username, password or TOTP not provided")
+    if IP_USER_LOCKOUT.is_locked(ip, username):
+        IP_USER_LOCKOUT.record_attempt(ip, username)
+        IP_LOCKOUT.record_attempt(ip)
+        Communicate.send("fail", ["Womp Womp!"])
+        raise Exception("Ip User combo is locked out")
+    if IP_LOCKOUT.is_locked(ip):
+        IP_USER_LOCKOUT.record_attempt(ip, username)
+        IP_LOCKOUT.record_attempt(ip)
+        Communicate.send("fail", ["Womp Womp!"])
+        raise Exception("Ip is locked out")
+    if USER_LOCKOUT.is_locked(username):
+        Communicate.send("fail", ["Womp Womp!"])
+        raise Exception("User is locked out")
+    user = AUTH_DATA_BASE.get_user_password(username)
+    if user == None:
+        IP_LOCKOUT.record_attempt(ip)
+        Communicate.send("fail", ["Womp Womp!"])
+        raise Exception("User does not exist")
+    if not check_pass(username, password):
+        IP_USER_LOCKOUT.record_attempt(ip, username)
+        IP_LOCKOUT.record_attempt(ip)
+        Communicate.send("fail", ["Womp Womp!"])
+        return False
+    INFO_LOGGER.info(f"Customer {username} from {ip} passed first authentication step.")
+    success = verify_TOTP(username, totp)
+    if not success:
+        IP_LOCKOUT.record_attempt(ip)
+        Communicate.send("fail", ["Womp Womp!"])
+        return False
+    INFO_LOGGER.info(f"Customer {username} from {ip} passed second authentication step.")
+    Communicate.send("succ", ["Well Done!"])
+    return True
+
+
+
+def verify_TOTP(username, totp):
+    ip = Communicate.ADDR[0]
+    secret = AUTH_DATA_BASE.get_user_secret(username).decode("utf-8")
+    TotpVerfier = TOTP(secret, interval=30, digits=8, digest=hashlib.sha256)
+    if USER_LOCKOUT.is_locked(username):
+        USER_LOCKOUT.record_attempt(username)
+        IP_LOCKOUT.record_attempt(ip)
+        return False
+    if not TotpVerfier.at(dTime.now()+timedelta(seconds=10)) == totp:
+        USER_LOCKOUT.record_attempt(username)
+        IP_LOCKOUT.record_attempt(ip)
+        return False
+    return True
+
+class UserLockoutManager:
+    def __init__(self, attempts=3, lockoutTime=timedelta(minutes=3)):
+        self.attempts = attempts
+        self.lockoutTime = lockoutTime
+        self.UserLockList = LinkedList(lockoutTime)
+        self.UserLock = {}
+
+    def record_attempt(self, username):
+        time = dTime.now()
+        if username not in self.UserLock:
+            new_node = self.UserLockList.add(username, time)
+            self.UserLock[username] = new_node
+        elif dTime.now() - self.UserLock[username].time >= self.lockoutTime:
+            self.UserLockList.remove(self.UserLock[username])
+            self.UserLock.pop(username)
+            self.record_attempt(username)
+        else:
+            self.UserLock[username].time = time
+            self.UserLock[username].attempts += 1
+            if self.UserLock[username].attempts == self.attempts:
+                ALERT_LOGGER.warn(f"User {username} has been locked out after {self.attempts} failed second factor authentication attempts.")
+            self.UserLockList.to_top(self.UserLock[username])
+        return
+
+    def is_locked(self, username):
+        if username not in self.UserLock:
+            return False
+        else:
+            if dTime.now() - self.UserLock[username].time < self.lockoutTime and self.UserLock[username].attempts >= self.attempts:
+                return True
+            elif dTime.now() - self.UserLock[username].time >= self.lockoutTime:
+                self.UserLockList.remove(self.UserLock[username])
+                self.UserLock.pop(username)
+                return False
+            else:
+                return False
+
+
+class IpUserLockoutManager:
+    
+    def __init__(self, attempts=3, lockoutTime=timedelta(minutes=3)):
+        self.attempts = attempts
+        self.lockoutTime = lockoutTime
+        self.IpUserLockList = LinkedList(lockoutTime)
+        self.IpUserLock = {}
+
+    def record_attempt(self, ip, user):
+        userIp = str(ip) + str(user)
+        time = dTime.now()
+        if userIp not in self.IpUserLock:
+            new_node = self.IpUserLockList.add(userIp, time)
+            self.IpUserLock[userIp] = new_node
+        elif dTime.now() - self.IpUserLock[userIp].time >= self.lockoutTime:
+            self.IpUserLockList.remove(self.IpUserLock[userIp])
+            self.IpUserLock.pop(userIp)
+            self.record_attempt(ip, user)
+        else:
+            self.IpUserLock[userIp].time = time
+            self.IpUserLock[userIp].attempts += 1
+            if self.IpUserLock[userIp].attempts == self.attempts:
+                ALERT_LOGGER.warn(f"IP {ip} has been locked out of {user} account after {self.attempts} failed attempts.")
+            self.IpUserLockList.to_top(self.IpUserLock[userIp])
+        return
+    
+    def is_locked(self, ip, user):
+        userIp = str(ip) + str(user)
+        if userIp not in self.IpUserLock:
+            return False
+        else:
+            if dTime.now() - self.IpUserLock[userIp].time < self.lockoutTime and self.IpUserLock[userIp].attempts >= self.attempts:
+                return True
+            elif dTime.now() - self.IpUserLock[userIp].time >= self.lockoutTime:
+                self.IpUserLockList.remove(self.IpUserLock[userIp])
+                self.IpUserLock.pop(userIp)
+                return False
+            else:
+                return False
+
+
+
+
+class IpLockoutManager:
+    
+
+    def __init__(self, attempts=30, lockoutTime=timedelta(minutes=20)):
+        self.attempts = attempts
+        self.lockoutTime = lockoutTime
+        self.IpLockList = LinkedList(lockoutTime)
+        self.IpLock = {}
+
+    def record_attempt(self, ip):
+        time = dTime.now()
+        if ip not in self.IpLock:
+            new_node = self.IpLockList.add(ip, time)
+            self.IpLock[ip] = new_node
+        elif dTime.now() - self.IpLock[ip].time >= self.lockoutTime:
+            self.IpLockList.remove(self.IpLock[ip])
+            self.IpLock.pop(ip)
+            self.record_attempt(ip)
+        else:
+            self.IpLock[ip].time = time
+            self.IpLock[ip].attempts += 1
+            if self.IpLock[ip].attempts == self.attempts:
+                ALERT_LOGGER.warn(f"IP {ip} has been locked out of all account after {self.attempts} failed attempts.")
+            self.IpLockList.to_top(self.IpLock[ip])
+        return
+
+    def is_locked(self, ip):
+        if ip not in self.IpLock:
+            return False
+        else:
+            if dTime.now() - self.IpLock[ip].time < self.lockoutTime and self.IpLock[ip].attempts >= self.attempts:
+                return True
+            elif dTime.now() - self.IpLock[ip].time >= self.lockoutTime:
+                self.IpLockList.remove(self.IpLock[ip])
+                self.IpLock.pop(ip)
+                return False
+            else:
+                return False
+
+
+class LinkedList:
+    def __init__(self, lockoutTime, cleanUpLimit=2000):
+        self.head = None
+        self.tail = None
+        self.count = 0
+        self.cleanUpLimit = cleanUpLimit
+        self.lastCleaned = dTime.now()
+        self.timeBetweenCleanUp = timedelta(minutes=5)
+        self.lastLogged = None
+        self.lockoutTime = lockoutTime
+
+    def add(self, value, time):
+        new_node = LinkedNode(value, time)
+        new_node.next = self.head
+        self.count += 1
+        if self.count > self.cleanUpLimit and dTime.now() - self.lastCleaned > self.timeBetweenCleanUp:
+            self.cleanUp()
+        elif self.count > self.cleanUpLimit:
+            if self.lastLogged == None:
+                self.lastLogged = dTime.now()
+                ALERT_LOGGER.warn(f"IP Lock List has exceeded {self.cleanUpLimit} items in short period of time possible Brute Force.")
+        if self.head != None:
+            self.head.prev = new_node
+        self.head = new_node
+        return new_node
+    
+    def remove(self, node):
+        if node == None:
+            return
+        if node.prev:
+            node.prev.next = node.next
+        if node.next:
+            node.next.prev = node.prev
+        if node == self.head:
+            self.head = node.next
+        if node == self.tail:
+            self.tail = node.prev
+        del node
+        self.count -= 1
+        return
+    
+    def to_top(self, node):
+        if node == self.head:
+            return
+        if node.prev != None:
+            node.prev.next = node.next
+        if node.next != None:
+            node.next.prev = node.prev
+        node.next = self.head
+        self.head.prev = node
+        self.head = node
+        return
+
+    """ def cleanUp(self, ):
+        node = self.tail
+        while node.time - dTime.now() > self.lockoutTime:
+            node = node.prev
+            del node.next
+            
+            self.remove(node.next)
+        while 
+ """
+
+
+class LinkedNode:
+    def __init__(self, value, time):
+        self.value = value
+        self.time = time
+        self.next = None
+        self.prev = None
+        self.attempts = 1
+
+
+
+
+
+IP_LOCKOUT = IpLockoutManager()
+IP_USER_LOCKOUT = IpUserLockoutManager()
+USER_LOCKOUT = UserLockoutManager()

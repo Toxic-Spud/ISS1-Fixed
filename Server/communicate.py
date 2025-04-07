@@ -6,16 +6,18 @@ import socket
 
 class Communicate:
     SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    SOCKET.bind(('192.168.0.62', 6666))
+    SOCKET.bind(('localhost', 6666))
     SOCKET.settimeout(120)
     SOCKET.listen(1)
     ADDR = None
     DELIMITIER = ","
-    clientComCodes= {"totp", "sign", "logn", "buyy", "sell", "info"}
+    clientComCodes= {"sign", "clog", "buy ", "sell", "info", "elog", "alog"}
+    serverComCodes= {"succ", "erro", "info", "s hi", "cert", "resp"}
 
 
     @classmethod
     def send(cls,action, data):
+        print("Sending Data: ", data)
         res = action
         for item in data:
             res += str(len(item)) + Communicate.DELIMITIER + item
@@ -26,7 +28,6 @@ class Communicate:
     
     @classmethod
     def read_reply(cls):
-        
         data = Communicate.SOCKET.recv(1024)
         data = data.decode("utf-8")
         if data == "":
@@ -49,4 +50,5 @@ class Communicate:
         except Exception as e:
             print("Error in reading reply:", e)
             return None
+        print("Reveiving Data: ", res)
         return res

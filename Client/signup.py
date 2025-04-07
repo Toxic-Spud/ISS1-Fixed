@@ -1,7 +1,7 @@
 from ClientCrypto import slow_client_hash
 from communicate import Communicate
 from TotpSetup import get_qrcode, show_qr_code
-import os
+
 
 
 
@@ -28,6 +28,7 @@ def sign_up():
                 qrcode_img = get_qrcode(secret, userN)
                 show_qr_code(qrcode_img)
                 break
+            print(reply[1])
     del passW
     del passConf
     return(True)
