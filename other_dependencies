@@ -1,0 +1,5 @@
+sudo apt install sqlcipher
+sudo apt install pkg-config
+apt-get install libtss2-dev
+sudo apt install gcc
+apt-get install python3-dev
