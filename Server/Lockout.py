@@ -1,68 +1,6 @@
 from datetime import datetime as dTime, timedelta
 from log import ALERT_LOGGER, INFO_LOGGER
-from database import AUTH_DATA_BASE
-from ServerCrypto import check_pass
-from communicate import Communicate
-from pyotp import TOTP
-import hashlib
 
-
-
-
-
-def customer_login(username, password, totp):
-    ip = Communicate.ADDR[0]
-    if username == None or password == None or totp == None:
-        Communicate.send("fail", ["Womp Womp!"])
-        raise Exception("Username, password or TOTP not provided")
-    if IP_USER_LOCKOUT.is_locked(ip, username):
-        IP_USER_LOCKOUT.record_attempt(ip, username)
-        IP_LOCKOUT.record_attempt(ip)
-        Communicate.send("fail", ["Womp Womp!"])
-        raise Exception("Ip User combo is locked out")
-    if IP_LOCKOUT.is_locked(ip):
-        IP_USER_LOCKOUT.record_attempt(ip, username)
-        IP_LOCKOUT.record_attempt(ip)
-        Communicate.send("fail", ["Womp Womp!"])
-        raise Exception("Ip is locked out")
-    if USER_LOCKOUT.is_locked(username):
-        Communicate.send("fail", ["Womp Womp!"])
-        raise Exception("User is locked out")
-    user = AUTH_DATA_BASE.get_user_password(username)
-    if user == None:
-        IP_LOCKOUT.record_attempt(ip)
-        Communicate.send("fail", ["Womp Womp!"])
-        raise Exception("User does not exist")
-    if not check_pass(username, password):
-        IP_USER_LOCKOUT.record_attempt(ip, username)
-        IP_LOCKOUT.record_attempt(ip)
-        Communicate.send("fail", ["Womp Womp!"])
-        return False
-    INFO_LOGGER.info(f"Customer {username} from {ip} passed first authentication step.")
-    success = verify_TOTP(username, totp)
-    if not success:
-        IP_LOCKOUT.record_attempt(ip)
-        Communicate.send("fail", ["Womp Womp!"])
-        return False
-    INFO_LOGGER.info(f"Customer {username} from {ip} passed second authentication step.")
-    Communicate.send("succ", ["Well Done!"])
-    return True
-
-
-
-def verify_TOTP(username, totp):
-    ip = Communicate.ADDR[0]
-    secret = AUTH_DATA_BASE.get_user_secret(username).decode("utf-8")
-    TotpVerfier = TOTP(secret, interval=30, digits=8, digest=hashlib.sha256)
-    if USER_LOCKOUT.is_locked(username):
-        USER_LOCKOUT.record_attempt(username)
-        IP_LOCKOUT.record_attempt(ip)
-        return False
-    if not TotpVerfier.at(dTime.now()+timedelta(seconds=10)) == totp:
-        USER_LOCKOUT.record_attempt(username)
-        IP_LOCKOUT.record_attempt(ip)
-        return False
-    return True
 
 class UserLockoutManager:
     def __init__(self, attempts=3, lockoutTime=timedelta(minutes=3)):
