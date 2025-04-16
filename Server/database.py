@@ -13,7 +13,24 @@ class CustomDataBase:
         self.key = b'9\xfd\xe4\xad\r\xa10\xe2l\xc0\xa7 \xda\xdb\xd5ep$\xae\xfd\x0cz\xfd\xea\xde\x97\xc8M\x9f_DK'
         self.kek = b'q\x0e\xcdMF\xd2\x19w/\xf8\xca(0\x96}BN\x94\x8f\xc4;}\x83.\xb8\x88$B\xc1\xb3l['
         self._cursor.execute(f"PRAGMA key = \"x'{self.key.hex()}\"")
-        self._cursor.execute("drop table Users")
+        try:
+            self._cursor.execute("drop table Users")
+        except sqlite3.OperationalError:
+            print("Passed")
+            pass
+        try:
+            self._cursor.execute("drop table Roles")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self._cursor.execute("drop table Transactions")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self._cursor.execute("drop table Employee_Customer")
+        except sqlite3.OperationalError:
+            pass
+
         self.initial_setup()
     
     def initial_setup(self):
@@ -26,19 +43,24 @@ class CustomDataBase:
                 username TEXT UNIQUE NOT NULL,
                 password bytea,
                 secret bytea,
-                com_key bytea NOT NULL,
-                sign_key bytea NOT NULL,
+                com_key bytea,
+                sign_key bytea,
                 active varchar(1),
-                FORIEGN KEY(role) references Roles(role_id) NOT NULL
+                role INTEGER,
+                foreign KEY(role) references Roles(role_id)
                 )""")
         self._cursor.execute("""CREATE TABLE Employee_Customer (
                 pair_id INTEGER PRIMARY KEY,
+                employee INTEGER NOT NULL,
+                customer INTEGER NOT NULL,
                 FOREIGN KEY (employee) REFERENCES Users(user_id)
                 FOREIGN KEY (customer) REFERENCES Users(user_id)
                 )""")
         self._cursor.execute("""CREATE TABLE Transactions(
                 trans_id INTEGER PRIMARY KEY,
-                FOREIGN KEY (employee) REFERENCES Users(user_id)
+                employee INTEGER NOT NULL,
+                customer INTEGER NOT NULL,
+                FOREIGN KEY (employee) REFERENCES Users(user_id),
                 FOREIGN KEY (customer) REFERENCES Users(user_id)
                 )""")
         
