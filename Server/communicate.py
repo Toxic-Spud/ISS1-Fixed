@@ -1,9 +1,20 @@
 import socket
 from ServerCrypto import decrypt_chacha20, encrypt_chacha20, handshake, hkdf_expand_label
 from datetime import timedelta, datetime
-from os import urandom
+from os import urandom, write
 from base64 import b64encode
+from database import User, AUTH_DATA_BASE
+from log import INFO_LOGGER
 
+DEMONSTRATION = False
+
+
+def print(*args):
+    if DEMONSTRATION:
+        buffer = b""
+        for arg in args: buffer += bytes(str(arg), "utf-8") 
+        write(1,buffer)
+    return
 
 
 
@@ -11,26 +22,34 @@ class Communicate:
 
     def __init__(self, bindAddress='localhost', bindPort=6666, timeout=120):
         print("Binding to address:", bindAddress, "and port:", bindPort)
-        self._con = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._con.bind((bindAddress, bindPort))
-        self._con.settimeout(timeout)
-        self._con.listen(1)
-        self.addr = None
-        self.sessionData = {}
-        self.recieverSeqNum = 0
+        self.bindAddress = bindAddress#address to listen on
+        self.bindPort = bindPort#port to listen on
+        self.timeout = timeout
+        self.bind()
+        self.addr = None#address of the connecting client
+        self.usersWithSessions = {}#stores the session id of each logged in user used to remove all sessions of a given user
+        self.sessionData = {}#stroes the session data ascosiated with each sessionId
+        self.recieverSeqNum = 0#sequence numbers for generating unique nonces
         self.senderSeqNum = 0
-        self._delimiter = b","
-        self._clientComCodes= {"sign", "clog", "buy ", "sell", "hist", "smsg", "rmsg", "rvok", "appr", "logo"}
-        self._serverComCodes= {"succ", "erro", "info", "cert", "resp"}
-        self._updMsgQueued = False
+        self._delimiter = b","#delimiter used to seperate data
+        self._clientComCodes= {"sign", "clog", "buy ", "sell", "hist", "smsg", "rmsg", "rvok", "appr", "logo"}#valid com codes from client
+        self._serverComCodes= {"succ", "erro", "info", "cert", "resp"}#valid server com codes
+        self._updMsgQueued = False#used to update keys when record containing update message is sent
         self.sendBuffer = b""
         self.recvBuffer = []
-        self._senderSecret = None
+        self._senderSecret = None#secrets derived from ECDHE
         self._recieverSecret = None
-        self._senderKey = None
+        self._senderKey = None#Keys derived from the secrets
         self._recieverKey = None
-        self._handshakeSequence = ("c hi", "s hi", "cert", "vcer", "sfin", "cfin")
-        self._handshakePositiion = 0
+        self._handshakeSequence = ("c hi", "s hi", "cert", "vcer", "sfin", "cfin")#Expected hanshake sequence
+        self._handshakePositiion = 0#current position of the handshake ensures that no steps are missed or out of order
+
+    def bind(self):
+        self._con = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._con.bind((self.bindAddress, self.bindPort))
+        self._con.settimeout(self.timeout)
+        self._con.listen(1)
+
 
     #gets the data pertaining to a session
     def get_session_data(self, sessionId:str):
@@ -43,6 +62,8 @@ class Communicate:
             return None
         return(data)
 
+
+
     #updates session activity
     def record_activity(self, sessionId:str):
         if sessionId not in self.sessionData:
@@ -51,9 +72,15 @@ class Communicate:
         return
 
     #Creates a new session id and stores the authenticated user in the sessionData using the id as a key
-    def new_session_id(self, user):
+    def new_session_id(self, username):
         newId = urandom(64)
         newId = b64encode(newId).decode("utf-8") #converts the 64 byte id to a base 64 encoded string
+        try:
+            user = AUTH_DATA_BASE.get_user(username)
+        except:
+            return False
+        self.usersWithSessions.setdefault(user.username, [])
+        self.usersWithSessions[user.username].append(newId)
         self.sessionData[newId] = {"user":user, "lastAction":datetime.now(), "sessionStart":datetime.now()}
         return newId
 
@@ -63,9 +90,19 @@ class Communicate:
         return
 
 
+    #Ends all sessions a user has can be used when making an account inactive or to remove compromised sessions
+    #Or if a password is updated
+    def close_user_sessions(self, username):
+        sessions = self.usersWithSessions.get(username)
+        if sessions != None:
+            for session in sessions:
+                self.end_session(session)
+        return
+
+
     def accept(self):
         self._con, self.addr = self._con.accept()
-        print("Connection from:", self.addr)
+        INFO_LOGGER.info(f"Incoming connection from {self.addr}")
         return 
     
 
@@ -78,7 +115,13 @@ class Communicate:
         self.senderSeqNum = 0
         self.recieverSeqNum = 0
         self._handshakePositiion = 0
-        self._con.close()
+        try:
+            self._con.close()
+        except:
+            print("Socket already closed")
+        self._updMsgQueued = False
+        self.sendBuffer = b""
+        self.recvBuffer = []
         return
 
 
@@ -143,15 +186,15 @@ class Communicate:
 
     #serializes data and adds it to buffer
     def add_to_buffer(self, action, data):
+        if (self.senderSeqNum >= 10) and not self._updMsgQueued:
+            self._updMsgQueued = True
+            self.add_to_buffer("upda", ["update application keys"])
         res = self._delimiter + bytes(action, "utf-8")
         for item in data:
             if not isinstance(item, bytes):
                 item = bytes(item, "utf-8")
             res += len(item).to_bytes(2,"big") + self._delimiter + item
         self.sendBuffer += res
-        if (self.senderSeqNum or self.recieverSeqNum >= 100) and not self._updMsgQueued:
-            self._updMsgQueued = True
-            self.add_to_buffer("upda", ["place holder"])
         return
 
     #Sends data in buffer
@@ -198,7 +241,7 @@ class Communicate:
                 buffer.append([])
                 i += 1
                 buffer[i].append(result[1:5].decode("utf-8"))
-                if buffer[i][0] == "upda ":
+                if buffer[i][0] == "upda" and self._handshakePositiion >= 6:
                     self.rekey()
                 result = result[5:]
             else:
@@ -206,13 +249,20 @@ class Communicate:
                 result = result[3:]
                 buffer[i].append(result[:dataLen])
                 result = result[dataLen:]
+        print(f"Recieving data: {buffer}: \n\n\n")
         self.recvBuffer = buffer
         return
     
 
     
     def initiate_handshake(self):
-        return handshake(self)
+        try:
+            res = handshake(self)
+            INFO_LOGGER.info(f"connection from {self.addr} successfully completed handshake")
+            return res
+        except Exception as e:#record failed hand shake and pass error up
+            INFO_LOGGER.info(f"connection from {self.addr} failed to complete handshake")
+            raise e
     
 
     #gets msg from the buffer, calls recv_buffer() if no messages in buffer 
@@ -224,7 +274,7 @@ class Communicate:
             raise IndexError("No messages in the buffer")
         msg = self.recvBuffer[0]
         self.recvBuffer = self.recvBuffer[1:]
-        if msg[0] == "upda ":
+        if msg[0] == "upda":
             return self.get_message()
         return(msg)
 

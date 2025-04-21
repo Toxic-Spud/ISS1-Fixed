@@ -83,6 +83,17 @@ def get_handshake_keys(sharedSecret, transcript):
 
 
 
+def verify_signature(sig, pub, signedData):
+    pub = ECC.import_key(pub, curve_name="p-256")
+    signedData = SHA256.new(bytes(signedData, "utf-8"))
+    verifier = DSS.new(pub, "fips-186-3")
+    try:
+        verifier.verify(signedData, sig)
+        return True
+    except:
+        return False
+
+
 
 def server_hello(connection):
     hello = []
@@ -217,8 +228,12 @@ def get_pass (username):
 
 
 def check_pass(username, password):
-    currentPass = get_pass(username)
-    return(argon2.PasswordHasher().verify(currentPass, password))
+    currentPass = get_pass(username).decode("utf-8")
+    try:
+        authenticate = argon2.PasswordHasher().verify(currentPass, password)
+        return authenticate
+    except:
+        return False
 
 
 

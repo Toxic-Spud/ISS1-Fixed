@@ -9,10 +9,10 @@ class Communicate:
     def __init__(self, bindAddress='localhost', bindPort=6666, timeout=120):
         self._targetAddress = bindAddress
         self._targetPort = bindPort
-        self._con = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._con.connect((bindAddress, bindPort))
-        self._con.settimeout(timeout)
+        self.timeout = timeout
+        self.connect()
         self.senderSeqNum = 0
+        self.sessionId = None
         self.recieverSeqNum = 0
         self._delimiter = b","
         self._clientComCodes= {"sign", "clog", "buy ", "sell", "info", "elog", "alog", "test", "c hi"}
@@ -28,7 +28,11 @@ class Communicate:
         self._handshakePositiion = 0
 
 
-        
+    def connect(self):
+        self._con = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._con.connect((self._targetAddress, self._targetPort))
+        self._con.settimeout(self.timeout)
+        return
 
     def close(self):
         self._senderSecret = None
@@ -38,12 +42,19 @@ class Communicate:
         self.senderSeqNum = 0
         self.recieverSeqNum = 0
         self._handshakePositiion = 0
-        self._con.close()
+        self._updMsgQueued = False
+        self.sendBuffer = b""
+        self.recvBuffer = []
+        try:
+            self._con.close()
+        except:
+            print("connection already closed")
         return
 
 
-     #calculates updated application secrets in accordance with rfc 8446 specification
+    #calculates updated application secrets in accordance with rfc 8446 specification
     def rekey(self):
+        print("rekeying")
         self._updMsgQueued = False
         newSenderSecret = hkdf_expand_label(self._senderSecret, b"upd", b"", 32)
         newRecvSecret = hkdf_expand_label(self._recieverSecret, b"upd", b"", 32)
@@ -102,6 +113,9 @@ class Communicate:
 
     #serializes data and adds it to buffer
     def add_to_buffer(self, action, data):
+        if (self.senderSeqNum >= 10) and not self._updMsgQueued:
+            self._updMsgQueued = True
+            self.add_to_buffer("upda", ["update application keys"])
         if self._handshakePositiion < 2 and action != "c hi" and action != "s hi":
             raise Exception("Complete handshake before sending data")
         res = self._delimiter + bytes(action, "utf-8")
@@ -110,9 +124,6 @@ class Communicate:
                 item = bytes(item, "utf-8")
             res += len(item).to_bytes(2,"big") + self._delimiter + item
         self.sendBuffer += res
-        if (self.senderSeqNum or self.recieverSeqNum >= 100) and not self._updMsgQueued:
-            self._updMsgQueued = True
-            self.add_to_buffer("upda", ["place holder"])
         return
 
     #Sends data in buffer
@@ -130,7 +141,9 @@ class Communicate:
         return
     
     #wrapper around add_to_buffer() and send_buffer()
-    def send(self, action, data):
+    def send(self, action, data, id=None):
+        if id:
+            data.append(self.sessionId)
         self.add_to_buffer(action, data)
         self.send_buffer()
         return
@@ -139,6 +152,7 @@ class Communicate:
 
     def recv_buffer(self): #ensures data larger than the networks MTU is read in its entirety
         data = self._con.recv(1024)
+        print(f"Recieving encrypted data: {data} \n\n\n")
         if data == b"":
             self.close()
             raise Exception("Session closed by server")
@@ -158,7 +172,7 @@ class Communicate:
                 buffer.append([])
                 i += 1
                 buffer[i].append(result[1:5].decode("utf-8"))
-                if buffer[i][0] == "upda ":
+                if buffer[i][0] == "upda" and self._handshakePositiion >= 6:
                     self.rekey()
                 result = result[5:]
             else:
@@ -167,6 +181,7 @@ class Communicate:
                 buffer[i].append(result[:dataLen])
                 result = result[dataLen:]
         self.recvBuffer = buffer
+        print(f"Recieving data: {buffer} \n\n\n")
         return
     
 
@@ -184,7 +199,7 @@ class Communicate:
             raise IndexError("No messages in the buffer")
         msg = self.recvBuffer[0]
         self.recvBuffer = self.recvBuffer[1:]
-        if msg[0] == "upda ":
+        if msg[0] == "upda":
             return self.get_message()
         return(msg)
 

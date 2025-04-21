@@ -14,7 +14,6 @@ from Crypto.Hash import SHA256, HMAC
 from datetime import datetime
 
 
-
 def slow_client_hash(password, username):
     saltGenerator = hashlib.sha256()
     saltGenerator.update(bytes(username, "utf-8"))
@@ -39,6 +38,25 @@ def check_cert(cert):
         return False
 
 
+def encrypt_msg(plaintext:bytes, key:bytes):
+    nonce = urandom(12)
+    cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(bytes(plaintext, "utf-8"))
+    return nonce + ciphertext + tag
+
+
+def decrypt_msg(ciphertext:bytes, key:bytes):
+    nonce = ciphertext[:12]
+    tag = ciphertext[-16:]
+    cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+    try:
+        plaintext = cipher.decrypt_and_verify(ciphertext[12:-16], tag)
+        return plaintext.decode("utf-8")
+    except:
+        return("Message failed integrity check")
+    
+
+
 def encrypt_chacha20(plaintext, key, nonce, sequenceNumber, header):
     nonce = bytes(abyte ^ bbyte for abyte, bbyte in zip(nonce, sequenceNumber.to_bytes(12, 'big')))
     cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
@@ -59,7 +77,7 @@ def decrypt_chacha20(ciphertext, key, expectedNonce):
         cipher.update(header)
         plaintext = cipher.decrypt_and_verify(ciphertext[14:-16], tag)
     except ValueError as e:
-        ALERT_LOGGER.warn("Message authentication failed possibly tampered")
+        print("Communication tampered with connection terminating")
         raise e
     return plaintext
 
