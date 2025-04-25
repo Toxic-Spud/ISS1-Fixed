@@ -1,5 +1,5 @@
 from communicate import Communicate
-from actions import login, sign_up, get_stocks, transaction, get_history, get_messages
+from actions import login, sign_up, get_stocks, transaction, get_history, get_messages, employee_sign_up, logout, add_employee, get_users, assign_employee_to_customer
 
 
 class user:
@@ -32,8 +32,18 @@ def main():
                     get_history(connection, data[-1:][0].decode("utf-8"), int(data[1]))
                 elif data[0] == "getm":
                     get_messages(connection, data[-1:][0].decode("utf-8"))
+                elif data[0] == "emps":
+                    employee_sign_up(connection, data[1].decode("utf-8"), data[2].decode("utf-8"), data[3].decode("utf-8"), data[4], data[5])
+                elif data[0] == "logo":
+                    logout(connection, data[1].decode("utf-8"))
+                elif data[0] == "nemp":
+                    add_employee(connection, data[1].decode("utf-8"), data[3].decode("utf-8"), data[2].decode("utf-8"))
+                elif data[0] == "lusr":
+                    get_users(connection, data[1].decode("utf-8"))
+                elif data[0] == "asig":
+                    assign_employee_to_customer(connection, int(data[1].decode("utf-8")), int(data[2].decode("utf-8")), data[3].decode("utf-8"))
                 else:
-                    raise ValueError("Unexpected client communication code")
+                    connection.send("fail", [])
         except Exception as e:
             print(f"{e}")
             connection.close()

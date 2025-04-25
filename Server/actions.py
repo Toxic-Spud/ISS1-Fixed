@@ -9,7 +9,7 @@ import hashlib
 from pyotp import TOTP
 from datetime import datetime as dTime, timedelta
 from communicate import Communicate
-from ServerCrypto import new_password, new_TOTP, verify_signature
+from ServerCrypto import new_password, new_TOTP, verify_signature, create_code, check_code
 import string
 from random import choice
 import json
@@ -35,22 +35,41 @@ class RBAC:
             return True
         else:
             return False
+    
+    @classmethod
+    def is_admin(cls, connection:Communicate,sessionId:str):
+        try:
+            user:User = connection.get_session_data(sessionId)["user"]
+        except:
+            return False
+        if user.role == "admin":
+            return True
+        else:
+            return False
 
+
+
+def logout(connection:Communicate, sessionId:str):
+    try:
+        connection.end_session(sessionId)
+        connection.send("succ", [])
+        return True
+    except:
+        connection.send("fail", [])
+        return False
 
 
 
 def verify_TOTP(username, totp):
     try:
-        secret = AUTH_DATA_BASE.get_user_secret(username).decode("utf-8")
+        secret = AUTH_DATA_BASE.get_user_secret(username)
     except:
         return(False)
     TotpVerfier = TOTP(secret, interval=30, digits=8, digest=hashlib.sha256)
     if USER_LOCKOUT.is_locked(username):
         USER_LOCKOUT.record_attempt(username)
         return False
-    print(TotpVerfier.at(dTime.now()+timedelta(seconds=10)))
-    if not TotpVerfier.at(dTime.now()+timedelta(seconds=10)) == totp:
-        USER_LOCKOUT.record_attempt(username)
+    if not TotpVerfier.at(dTime.now()) == totp:
         return False
     return True
 
@@ -92,6 +111,7 @@ def login(connection:Communicate, username:bytes, password:bytes, totp:bytes):
         IP_LOCKOUT.record_attempt(ip)
         connection.send("fail", ["Account deactivated please contact administrator if you believe this is a mistake"])
         return False
+    print(password)
     if not check_pass(username, password):
         IP_USER_LOCKOUT.record_attempt(ip, username)
         IP_LOCKOUT.record_attempt(ip)
@@ -123,9 +143,14 @@ def login(connection:Communicate, username:bytes, password:bytes, totp:bytes):
 def sign_up(connection:Communicate,username:str, password:str, comKey:bytes, sigKey:bytes):
     if username == None or password == None:
         connection.send("fail", ["Invalid username or password"])
+        return False
     if len(username)  < 6:
         connection.send("fail", ["Username must exceed 6 characters"])
+        return False
     try:
+        if IP_LOCKOUT.is_locked(connection.addr[0]):
+            connection.send("fail", ["Invalid username or password"])
+            return False
         AUTH_DATA_BASE.create_customer(username, new_password(password), comKey, sigKey )
         TotpSecret = new_TOTP(username)
     except Exception as e:
@@ -137,21 +162,37 @@ def sign_up(connection:Communicate,username:str, password:str, comKey:bytes, sig
 
 
 
-def employee_sign_up(connection:Communicate, code, username, password):
-    check  = AUTH_DATA_BASE.check_code(code, username)
-    if not check:
+def employee_sign_up(connection:Communicate, code, username, password, comKey:bytes, sigKey:bytes):
+    codeHash  = AUTH_DATA_BASE.check_code(username)
+    check = check_code(code, codeHash)
+    if IP_LOCKOUT.is_locked(connection.addr[0]):
         connection.send("fail", ["Invalid code or username please contact admin if you believe the code to be correct"])
         return False
-    else:
-        return sign_up(connection, username, password)
-
-
-
-
-def add_employee(connection, username):
+    if not check:
+        connection.send("fail", ["Invalid code or username please contact admin if you believe the code to be correct"])
+        IP_LOCKOUT.record_attempt(connection.addr[0])
+        return False
     try:
-        code = AUTH_DATA_BASE.add_employee(username)
+        AUTH_DATA_BASE.sign_up_employee(username,comKey,sigKey, new_password(password))
+        TotpSecret = new_TOTP(username)
+    except Exception as e:
+        connection.send("fail", ["Error occured please contact an admin"])
+        return False
+    connection.send("totp", [TotpSecret])
+    return True
+
+
+
+
+
+def add_employee(connection:Communicate, username, sessionId, role="financial advisor"):
+    if not RBAC.is_admin(connection, sessionId):
+        return False
+    try:
+        code, codeHash = create_code()
+        AUTH_DATA_BASE.create_employee_code(username,role, codeHash)
         connection.send("succ", [code])
+        return True
     except Exception as e:
         connection.send("fail", ["User taken select different username"])
         IP_LOCKOUT.record_attempt(connection.addr[0])
@@ -242,3 +283,45 @@ def get_messages(connection:Communicate, sessionId):
         connection.send("Fail", [b"None"])
         return
     connection.send("succ", [pub]+messages)
+
+
+
+def get_users(connection:Communicate, sessionId):
+    if not RBAC.is_admin(connection, sessionId):
+        connection.send("fail", [])
+        return False
+    users = AUTH_DATA_BASE.get_user_list()
+    userList = []
+    for user in users:
+        userList.append(json.dumps(user))
+    connection.send("succ", userList)
+
+
+
+def assign_employee_to_customer(connection:Communicate, employeeId:int, customerId:int, sessionId:str):
+    if not RBAC.is_admin(connection, sessionId):
+        connection.send("fail", [])
+        return False
+    employee:User = AUTH_DATA_BASE.get_user_from_id(employeeId)
+    customer:User = AUTH_DATA_BASE.get_user_from_id(customerId)
+    if employee.role == "finance advisor" and customer.role == "customer" and employee.active and customer.active:
+        confirm = AUTH_DATA_BASE.assign_to_employee(customerId, employeeId)
+        if confirm:
+            connection.send("succ", [])
+            return True
+        connection.send("fail", ["customer already assigned to employee"])
+        return False
+        
+    else:
+        connection.send("fail", ["Users are not a finance advisor and customer or are not active"])
+        return False
+""" code, codeHash = create_code()
+print(code)
+AUTH_DATA_BASE.remove_test_user("devAdmin")
+res = AUTH_DATA_BASE.create_employee_code("devAdmin","admin", codeHash)
+print(res) """
+
+
+
+
+

@@ -19,8 +19,8 @@ def log_in(connection:Communicate):
         print("LOG IN")
         userN = str(input("Enter username: "))
         passW = str(input("Enter password: "))
-        pHash = slow_client_hash(passW, userN)
         totp = str(input("Enter TOTP: "))
+        pHash = slow_client_hash(passW, userN)
         data = [userN, pHash.split("$")[5],totp]
         connection.send("clog", data)
         reply = connection.get_message()
@@ -54,6 +54,15 @@ def pass_req(password:str, confPass:str):
     return True
 
 
+
+def  logout(connection:Communicate):
+    connection.send("logo", [], "sessionId")
+    reply = connection.get_message()
+    if reply[0] != "succ":
+        print("Logout attempt failed")
+        return False
+    print("Logout Successful")
+    return True
 
 
 def sign_up(connection):
@@ -137,11 +146,57 @@ def get_history(connection:Communicate, account_id):
 
 
 def add_employee(connection:Communicate):
-    username = str(input("Enter the username for new employee"))
-    connection.send("nemp", [username], "sessionId")
+    username = str(input("Enter the username for new employee: "))
+    roles = {"a":"admin", "f":"finance advisor"}
+    role =  str(input("Enter role fiancial advisor (f) or admin (a): ")).lower()
+    role = roles.get(role)
+    if not role:
+        print("Invalid Role")
+        return False
+    connection.send("nemp", [username, role], "sessionId")
     result = connection.get_message()
     if result[0] == "succ":
         print(f"Employee added code {result[1].decode('utf-8')} can be used by employee to sign up (code is valid for 1 week)")
+    else:
+        print("Failed to add employee")
+
+def employee_sign_up(connection:Communicate):
+    reply = None
+    signKey = ECC.generate(curve="p256")
+    comKey = ECC.generate(curve="p256")
+    while reply != b"succ":
+        print("SIGN UP")
+        print("Username must be >6 characters")
+        userN = str(input("Enter username: "))
+        code = str(input("Enter Code for New Employee Account: "))
+        print("Password must have >15 characters and <128 charactershave at least 1 uppercase, 1 lowercase, 1 number and 1 special character and be unique")
+        passW = str(input("Enter password: "))
+        passConf = str(input("Enter Password Confirmation: "))
+        msg = pass_req(passW, passConf)
+        if len(userN) < 6:
+            print("Username must exceed 6 characters")
+        elif msg != True:
+            print(msg)
+        else:
+            pHash = slow_client_hash(passW, userN)
+            data = [code, userN, pHash.split("$")[5], comKey.public_key().export_key(format="DER"), signKey.public_key().export_key(format="DER")]
+            connection.send("emps", data)
+            reply = connection.get_message()
+            if reply[0] == "totp":
+                sFile = open("sealedSign.key", "bw")
+                cFile = open("sealedCom.key", "bw")
+                sFile.write(signKey.export_key(format="DER"))
+                cFile.write(comKey.export_key(format="DER"))
+                cFile.close()
+                sFile.close()
+                secret = reply[1]
+                qrcode_img = get_qrcode(secret, userN)
+                show_qr_code(qrcode_img)
+                break
+            print(reply[1])
+    del passW
+    del passConf
+    return(True)
 
 
 
@@ -153,12 +208,13 @@ def assign_customer(connection:Communicate):
         employee = str(input("Enter emplyee ID: ")).lower()
         customer = str(input("Enter customer ID: ")).lower()
         if customer == "b" or employee == "b":
-            return
+            return False
         connection.send("asig", [employee, customer], "sessionId")
         reply = connection.get_message()
-        print(reply[1])
         if reply[0] == "succ":
-            return
+            print("Successfully assigned customer to employee")
+            return True
+        print(reply[1])
 
 
 
@@ -168,7 +224,7 @@ def print_table(table):
         row = json.loads(row.decode("utf-8"))
         for i, item in enumerate(row):
             item = str(item)
-            if len(colWidth) < len(table[0]):
+            if len(colWidth) < len(row):
                 colWidth.append(len(item))
             elif len(item) > colWidth[i]:
                 colWidth[i] = len(item)
@@ -186,9 +242,12 @@ def print_table(table):
 def get_users(connection:Communicate):
     connection.send("lusr", [], "sessionId")
     employees = connection.get_message()
-    columns = [json.dumps(["Id", "Username", "Role"])]
+    columns = [bytes(json.dumps(["Id", "Username", "Role", "Active"]),"utf-8")]
     if employees[0] == "succ":
         print_table(columns+employees[1:])
+        return
+    print("Failed to obtain user list")
+    return
 
 
 
@@ -228,7 +287,7 @@ def get_messages(connection:Communicate, length=0):
     if reply[0] == "fail":
         print(f"Failed to retrieve messages {reply[1]}")
         raise Exception("Failed to get messages")
-    pubKey = reply[1]
+    pubKey = ECC.import_key(reply[1], curve_name="p256")
     if reply[1] == b"None":
         print("You do not have a financial advisor please contact adminsistrator to get one")
         raise ValueError("No Financial advisor")
@@ -255,7 +314,8 @@ def messages(connection:Communicate, userId):
         secretKey, decryptedMessages = get_messages(connection)
     except:
         return
-    print_messages(decryptedMessages, userId)
+    if decryptedMessages:
+        print_messages(decryptedMessages, userId)
     choice = None
     while choice != "b":
         print("Send message (s)\nView messages again (v)\nBack (b)")
@@ -295,7 +355,7 @@ def send_message(connection:Communicate, content:str, key:bytes, userId:str|int)
     message = [str(content), str(userId), datetime.now().strftime("%D/%m/%Y %H:%M")]
     message = bytes(json.dumps(message), "utf-8")
     message = encrypt_msg(message, key)
-    connection.send("smsg", [message])
+    connection.send("smsg", [message], "sessionId")
     reply = connection.get_message()
     if  reply[0] != "succ":
         print(f"Failed to send msg: {reply[1]}")

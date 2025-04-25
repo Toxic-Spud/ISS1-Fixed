@@ -16,6 +16,8 @@ from Crypto.Protocol.DH import key_agreement
 import hashlib
 import json
 from datetime import datetime, timedelta
+from random import SystemRandom
+import string
 
 
 CA = ECC.import_key(b'0\x81\x87\x02\x01\x000\x13\x06\x07*\x86H\xce=\x02\x01\x06\x08*\x86H\xce=\x03\x01\x07\x04m0k\x02\x01\x01\x04 9\x04R\xc4\xc7\x81\xd6\x06\xee\xd7\xcf`\x92\x8d\xed\xe5\x9eHj\xa2\x8a\xa8\xbc\x8b\xdb7bJ\xec@\x99;\xa1D\x03B\x00\x04\xff\xeb\x91\x18\xe89g\xadWR\xf5\xb8\x86%\x1bt1\xb1\xbfs\xdd\x11\xe1\xb2p\x17\x84\x1f\xf9<DMc)\xc8\x94(S\xac\xbf\x01\xeb\xad\xd6\xc1`#\xff:B\x9fG6\xed\xba\x94FmI\x00\xde\xf3?\xd2')
@@ -215,7 +217,7 @@ def new_TOTP(username):
 
 
 def new_password(clientPassHash:str):
-    hasher = argon2.PasswordHasher()
+    hasher = argon2.PasswordHasher(2, 800000, 4,64,32)
     hashedPassword = hasher.hash(clientPassHash)
     return(hashedPassword)
 
@@ -228,15 +230,30 @@ def get_pass (username):
 
 
 def check_pass(username, password):
-    currentPass = get_pass(username).decode("utf-8")
+    start = datetime.now()
     try:
+        currentPass = get_pass(username).decode("utf-8")
         authenticate = argon2.PasswordHasher().verify(currentPass, password)
+        print(datetime.now()-start)
         return authenticate
     except:
+        print(datetime.now()-start, "hi")
         return False
 
 
 
+def check_code(code, codeHash):
+    try:
+        authenticate = argon2.PasswordHasher().verify(codeHash, code)
+        return authenticate
+    except:
+        return False
+    
+def create_code():
+    code = ""
+    for i in range(20):code += SystemRandom().choice(string.printable[:-6])
+    codeHash = new_password(code)
+    return code, codeHash
 
 
 

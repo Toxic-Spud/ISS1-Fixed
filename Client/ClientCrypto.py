@@ -18,7 +18,7 @@ def slow_client_hash(password, username):
     saltGenerator = hashlib.sha256()
     saltGenerator.update(bytes(username, "utf-8"))
     userSalt = hashlib.sha256().digest()
-    hasher = argon2.PasswordHasher(10, 256000, 4,64,32)
+    hasher = argon2.PasswordHasher(10, 512000, 4,64,32)
     hashedPassword = hasher.hash(password, salt=userSalt)
     return(hashedPassword)
 
@@ -41,7 +41,7 @@ def check_cert(cert):
 def encrypt_msg(plaintext:bytes, key:bytes):
     nonce = urandom(12)
     cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
-    ciphertext, tag = cipher.encrypt_and_digest(bytes(plaintext, "utf-8"))
+    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
     return nonce + ciphertext + tag
 
 
