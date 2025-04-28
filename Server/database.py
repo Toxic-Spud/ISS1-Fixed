@@ -3,10 +3,7 @@ import os
 import shutil
 import datetime
 from Crypto.Cipher import AES
-import argon2
-from log import INFO_LOGGER
-import string
-from random import choice
+from hashlib import pbkdf2_hmac
 
 class User:
     def __init__(self, id, username, role, active, code, sign_key, date):
@@ -22,56 +19,22 @@ class User:
 
 
 class CustomDataBase:
-    def __init__(self, dbFile):
+    def __init__(self, dbFile, kek):
         self._dbFile = dbFile
-        self._connection = sqlite3.connect(self._dbFile)
+        self._connection = sqlite3.connect(self._dbFile)#connect to sqlite file
         self._cursor = self._connection.cursor()
-        self.key = b'9\xfd\xe4\xad\r\xa10\xe2l\xc0\xa7 \xda\xdb\xd5ep$\xae\xfd\x0cz\xfd\xea\xde\x97\xc8M\x9f_DK'
-        self.kek = b'q\x0e\xcdMF\xd2\x19w/\xf8\xca(0\x96}BN\x94\x8f\xc4;}\x83.\xb8\x88$B\xc1\xb3l['
-        self._cursor.execute(f"PRAGMA key = \"x'{self.key.hex()}\"")
+        self.kek = kek
+        self.initialise_key()#gets key from file and decrypts it with kek
+        self._cursor.execute(f"PRAGMA key = \"x'{self.key.hex()}\"")#sets key
         self._cursor.execute("PRAGMA foreign_keys=ON")
-        print(self._cursor.execute("select * from users").fetchall())
-        print(self._cursor.execute("select * from transactions").fetchall())
-        print(self._cursor.execute("select * from stocks").fetchall())
-        """ try:#This is all for development remove this section and initial setup when in production
-            self._cursor.execute("drop table Users")
-        except sqlite3.OperationalError:
-            pass
         try:
-            self._cursor.execute("drop table Roles")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            self._cursor.execute("drop table Transactions")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            self._cursor.execute("drop table Employee_Customer")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            self._cursor.execute("drop table messages")
-        except sqlite3.OperationalError:
-            pass
-
-    
-        self.initial_setup()
-        self._cursor.execute(CREATE TABLE Transactions(
-        trans_id INTEGER PRIMARY KEY,
-        unique_id TEXT UNIQUE NOT NULL,
-        user_account INTEGER NOT NULL,
-        stock INTEGER NOT NULL,
-        amount INTEGER NOT NULL check(amount > 0),
-        time_stamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        action varchar(1) NOT NULL check(action in ('s', 'b')),
-        transaction_initiator INTEGER NOT NULL,
-        signature bytea NOT NULL,
-        FOREIGN KEY (user_account) REFERENCES Users(user_id),
-        FOREIGN KEY (transaction_initiator) REFERENCES Users(user_id),
-        FOREIGN KEY (stock) REFERENCES stocks(stock_id)
-        ))"""
-    
-
+            self.initial_setup()
+        except Exception as e:
+            print(str(e))
+        #self._cursor.execute("delete from messages where recipient = 69 or sender = 69")
+        #self._connection.commit()
+        
+            
 
     def initial_setup(self):
         self._cursor.execute("""CREATE TABLE Users (
@@ -102,18 +65,20 @@ class CustomDataBase:
             )
             """)
         
-        self._cursor.execute("""CREATE OR REPLACE TABLE Transactions(
+        self._cursor.execute("""CREATE TABLE Transactions(
             trans_id INTEGER PRIMARY KEY,
             user_account INTEGER NOT NULL,
             stock INTEGER NOT NULL,
+            total REAL NOT NULL,
             amount INTEGER NOT NULL,
             time_stamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             action varchar(1) NOT NULL,
             transaction_initiator INTEGER NOT NULL,
             signature bytea NOT NULL,
+            unique_id TEXT NOT NULL UNIQUE,
             FOREIGN KEY (user_account) REFERENCES Users(user_id),
-            FOREIGN KEY (transaction_initiator) REFERENCES Users(user_id)
-            FOREIGN KEY (stock) REFERENCES stock(stock_id)
+            FOREIGN KEY (transaction_initiator) REFERENCES Users(user_id),
+            FOREIGN KEY (stock) REFERENCES stocks(stock_id)
             )""")
         self._cursor.execute("""create table messages(
             message_id INTEGERR PRIMARY KEY,
@@ -125,6 +90,7 @@ class CustomDataBase:
             FOREIGN KEY (recipient) REFERENCES Users(user_id)               
             )
             """)
+        self._connection.commit()
 
 
     def get_user_password(self, username):
@@ -135,7 +101,7 @@ class CustomDataBase:
         if result[0] == None:
             raise Exception("User has no password")#raise exception to stop users without passwords from logging on
         if result[1] != "y":#throws error if account is deactivated stops sign in on deactivated accounts
-            raise Exception("User has no password")
+            raise Exception("Account Deactivated")
         if result:
             return result[0]
         return None
@@ -178,14 +144,30 @@ class CustomDataBase:
             raise Exception(f"Failed to update secret: for user {username}")
 
 
-    def encrypt_key(self, key, kek=b"this is a 32 byte key to test re"):
+    def encrypt_key(self, key, kek):
         iv = os.urandom(16)
         cipher = AES.new(kek, AES.MODE_CBC, iv)
         ciphertext = cipher.encrypt(key)
         return iv + ciphertext
+    
+    def decrypt_key(self, encryptedKey):
+        iv = encryptedKey[:16]
+        cipher = AES.new(self.kek, AES.MODE_CBC, iv=iv)
+        plainText = cipher.decrypt(encryptedKey[16:])
+        if plainText:
+            return plainText
+        raise Exception("Invalid data in key file")
+    
+    def initialise_key(self):
+        with open("current_key.key", "rb") as f:
+            encryptedKey = f.read()
+        f.close()
+        key = self.decrypt_key(encryptedKey)
+        self.key = key
+        return
 
 
-    def rekey_database(self, new_key: bytes, db_path="Authenticate.db"):
+    def backup_rekey_database(self, new_key: bytes, db_path="Authenticate.db"):
         date = datetime.datetime.now().date()
         backup_name = f".\\backup\\Authenticate_backup_{date}.db"
         shutil.copy2(db_path, backup_name)
@@ -194,11 +176,25 @@ class CustomDataBase:
         key_file = f".\\backup\\key_{date}.bin"
         with open(key_file, "wb") as f:
             f.write(encrypted_key)
+        f.close()
         print(f"Encrypted old key saved to: {key_file}")
         self.key = new_key
+        encrypted_key = self.encrypt_key(self.key, self.kek)
+        with open("current_key.key", "wb") as f:
+            f.write(encrypted_key)
+        f.close()
         self._cursor.execute(f"PRAGMA rekey = \"x'{new_key.hex()}\"")
         self._connection.commit()
         print("Database rekeyed successfully.")
+        return backup_name, key_file
+
+    def revoke_key(self):
+        newKey = os.urandom(32)
+        backup, key = self.backup_rekey_database(newKey)
+        os.remove(backup)
+        os.remove(key)
+        return True
+    
     
     
     def get_user(self, username):
@@ -206,6 +202,7 @@ class CustomDataBase:
         if user == None:
             raise ValueError("user does not exist")
         return User(user[0], user[1], user[2], user[3], user[4], user[5], user[6])
+
 
     def get_user_from_id(self, userId):
         user = self._cursor.execute("select user_id, username, role, active, code, sign_key, account_created from users where user_id = ?", (userId,)).fetchone()
@@ -216,8 +213,10 @@ class CustomDataBase:
 
     def add_transaction(self, user_id, isuer_id, stock_id, amount, action, sig, unique_id):
         try:
-            self._cursor.execute("insert into transactions (user_account,stock,amount,action,transaction_initiator,signature, unique_id) values (?,?,?,?,?,?, ?)",
-                            (int(user_id), int(stock_id), int(amount), action, int(isuer_id), sig, unique_id))
+            stockPrice = self._cursor.execute("select price from stocks where stock_id = ?", (stock_id,)).fetchone()
+            total = stockPrice[0] * int(amount)
+            self._cursor.execute("insert into transactions (user_account,stock,amount,action,transaction_initiator,signature, unique_id, total) values (?,?,?,?,?,?, ?, ?)",
+                            (int(user_id), int(stock_id), int(amount), action, int(isuer_id), sig, unique_id, total))
             self._connection.commit()
         except:
             return False
@@ -244,7 +243,6 @@ class CustomDataBase:
         self._connection.commit()
 
 
-
     def assigned_to_employee(self, employee_id, customer_id):
         try:
             res = self._cursor.execute("select pair_id from Employee_Customer where customer = ? and employee = ?", (customer_id, employee_id)).fetchone()
@@ -253,26 +251,29 @@ class CustomDataBase:
             return True
         except:
             return False
-        
+
+
     def get_assigned_employee(self, userId:int):
         result = self._cursor.execute("select employee from employee_customer where customer = ?", (userId,)).fetchone()
         if not result:
+            return False
+        if not result[0]:
             return False
         return result[0]
     
 
     def get_customers_assigned_to_employee(self, employeeId):
-        customers = self._cursor.execute("select u.user_id, u.username, u.active from users u inner join Eployee_Customer e on u.user_id = e.customer where e.employee = ? and u.active = 'y' order by u.username", (employeeId,)).fetchall()
+        customers = self._cursor.execute("select u.user_id, u.username, u.active from users u inner join Employee_Customer e on u.user_id = e.customer where e.employee = ? and u.active = 'y' order by u.username", (employeeId,)).fetchall()
         return customers
 
 
-    def get_messages(self, userId:int):
-        msgs = self._cursor.execute("select sender, message from messages where sender = ? or recipient = ?", (userId, userId)).fetchall()
+    def get_messages(self, customerId:int, employeeId:int):
+        msgs = self._cursor.execute("select sender, recipient, message from messages where (sender = ? and recipient = ?) or (sender = ? and recipient = ?)", (customerId, employeeId, employeeId, customerId)).fetchall()
         return(msgs)
     
-    def get_sender_public_key(self, userId):
-        employeeId = self.get_assigned_employee(userId)
-        publicKey = self._cursor.execute("select com_key from Users where user_id = ?", (employeeId,)).fetchone()[0]
+
+    def get_public_key(self, userId):
+        publicKey = self._cursor.execute("select com_key from Users where user_id = ?", (userId,)).fetchone()[0]
         return publicKey
         
 
@@ -283,31 +284,38 @@ class CustomDataBase:
         except:
             return None
     
+
     def get_history(self,account):
         try:
-            history = self._cursor.execute("select * from Transactions where user_account = ?", (account,)).fetchall()
+            history = self._cursor.execute("select u.username, s.name, t.amount, t.action, t.total, t.time_stamp from Users u inner join Transactions t on  u.user_id = t.transaction_initiator inner join stocks s on t.stock = s.stock_id where t.user_account = ?", (account,)).fetchall()
             print(history)
             return history
         except:
             return None
         
 
-
-    def deactivate_user(self,username):
-        self._cursor.execute("update Users set active = 'n' where username = ?", (username,))
-        self._connection.commit()
-        return
+    def deactivate_user(self,userId):
+        try:
+            self._cursor.execute("update Users set active = 'n' where user_id = ?", (userId,))
+            self._connection.commit()
+        except:
+            return False
+        return True
     
-    def activate_user(self, username):
-        self._cursor.execute("update Users set active = 'y' where username = ?", (username,))
-        self._connection.commit()
-        return
+
+    def activate_user(self, userId):
+        try:
+            self._cursor.execute("update Users set active = 'y' where user_id = ?", (userId,))
+            self._connection.commit()
+        except:
+            return False
+        return True
+
 
     def add_stock(self, name, price):
         self._cursor.execute("insert into stocks (name, price) values (?,?)", (name,price))
         self._connection.commit()
         return
-
 
 
     def check_code(self, username):
@@ -325,11 +333,13 @@ class CustomDataBase:
             return False
         return user[4]
 
+
     def _remove_old_code(self, userId):
         self._cursor.execute("delete from users where user_id = ?", (userId,))
         self._connection.commit()
         return
     
+
     def sign_up_employee(self, username:str, comKey:str, signKey:str, passwordHash:str):
         try:
             self._cursor.execute('update Users set password=?, com_key=?, sign_key=?, code=Null where username = ?',
@@ -341,7 +351,6 @@ class CustomDataBase:
             raise Exception("Falied to sign up employee")
 
 
-
     def create_employee_code(self, username, role, codeHash):
         try:
             self._cursor.execute("INSERT INTO Users(username,code, active, role) VALUES (?, ?, ?, ?)", (username, codeHash, 'y', role))
@@ -350,6 +359,7 @@ class CustomDataBase:
             return False
         return True
         
+
     def revoke_users_com_key(self, userId):
         self._cursor.execute("update users set com_key = Null where user_id = ?", (userId,))
         self._connection.commit()
@@ -361,6 +371,7 @@ class CustomDataBase:
         self._connection.commit()
         return
 
+
     def update_user_email(self, userId, email:str):
         self._cursor.execute("update users set email = ? where user_id = ?", (email, userId))
         self._connection.commit()
@@ -371,11 +382,23 @@ class CustomDataBase:
         users = self._cursor.execute("select user_id, username, role, active from users").fetchall()
         return users
 
-AUTH_DATA_BASE = CustomDataBase("Authenticate.db")
+
+    def add_message(self, sender, recipient, encMessage):
+        try:
+            self._cursor.execute("insert into messages (sender, recipient, message) values (?,?,?)", (sender,recipient,encMessage))
+            self._connection.commit()
+        except:
+            return False
+        return True
+    
+
+passW = bytes(str(input("Enter Database Password: ")), "utf-8")
+kek = pbkdf2_hmac("sha256",passW,b'\xfb\xaca\x11\xaf\x8c\xa8\x9b\x98\xff\xa3R\x919\x9f*', 3000000, 32)
+AUTH_DATA_BASE = CustomDataBase("Authenticate.db", kek)
 
 
 
-
+#test cases for the database
 def test_cases():
     AUTH_DATA_BASE.remove_test_user("testUser")
     try:

@@ -7,15 +7,17 @@ from Crypto.Protocol import DH
 from Crypto.PublicKey import ECC
 
 SIGN_KEY_HANDLE = 0x81010000
-COM_HANDLE = 0x81010001
+COM_HANDLE = 0x81010001 # You may change this if needed
 
+# Generate ECC keypair and make it persistent
 def generate_ecc_keypair(handle_file):
     with ESAPI() as ctx:
 
+        # Simplified public area for ECC key generation
         in_public = TPM2B_PUBLIC.parse("ecc256:ecdsa-SHA256", (TPMA_OBJECT.SIGN_ENCRYPT | TPMA_OBJECT.SENSITIVEDATAORIGIN| TPMA_OBJECT.USERWITHAUTH))
 
         try:
-            # Create the key in the tpm
+            # Create the key pait in the tpm
             primary = ctx.create_primary(
                 primary_handle=ESYS_TR.OWNER,
                 in_sensitive=TPM2B_SENSITIVE_CREATE(),
@@ -95,7 +97,6 @@ def tpm_sign(data: bytes):
     dig = ctx.hash(data, hash_alg=TPM2_ALG.SHA256)
     sig = ctx.sign(key_handle, dig[0], TPMT_SIG_SCHEME(scheme=TPM2_ALG.NULL), validation=dig[1])
     return sig
-
 
 def verfy_signature(marshaledSignature:bytes, signedData:bytes, publicPem):
     pub =TPM2B_PUBLIC.from_pem(publicPem)

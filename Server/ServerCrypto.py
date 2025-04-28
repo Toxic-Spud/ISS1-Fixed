@@ -5,7 +5,7 @@ from hkdf import hkdf_expand as h_exp, hkdf_extract as h_ext
 from hkdf import hmac
 from database import AUTH_DATA_BASE
 from log import ALERT_LOGGER
-from cryptography import x509
+from time import sleep
 
 import base64
 from Crypto.Cipher import ChaCha20_Poly1305
@@ -62,11 +62,11 @@ def hkdf_expand(key, info, length=32):
 
 
 def  hkdf_expand_label( key, info, transcript_hash, length=32):
-    HKDFLabel = bytes(256) + b"tls13" +info+ transcript_hash
+    HKDFLabel = int(256).to_bytes(2,"big") + b"tls13" +info+ transcript_hash
     result = hkdf_expand(key, HKDFLabel, length)
     return(result)
 
-# empty kdf as TLS1.3 keyshedule will be used and key agreement implementation requires a KDF
+# empty kdf as TLS1.3 keyshedule will be used for key derivation and key_agreement function requires a KDF
 def empty_kdf(input):
     return input
 
@@ -143,36 +143,36 @@ def get_application_secrets(handshakeSecret, transcript):
 
 
 def handshake(connection):
-    transcriptHash = hashlib.sha256()
+    transcriptHash = hashlib.sha256()#start transcript hash
     try:
-        clientHello = connection.read_handshake()
+        clientHello = connection.read_handshake()#get client hello
     except Exception as e:
-        connection.close()
+        connection.close()#close connection if client hello is invalid
         raise e
-    random, serverPriv = server_hello(connection)
-    clientPub = ECC.import_key(encoded=b'0*0\x05\x06\x03+en\x03!\x00'+clientHello[1], curve_name="Curve25519")
+    random, serverPriv = server_hello(connection)#send server hello
+    clientPub = ECC.import_key(encoded=b'0*0\x05\x06\x03+en\x03!\x00'+clientHello[1], curve_name="Curve25519")#get clients public key
     transcriptHash.update(clientHello[0])
     transcriptHash.update(clientHello[1])
     transcriptHash.update(random)
-    transcriptHash.update(serverPriv.public_key().export_key(format="raw"))
-    sharedSecret = key_agreement(eph_priv=serverPriv, eph_pub=clientPub, kdf=empty_kdf, static_priv=None, static_pub=None)
-    handshakeData = get_handshake_keys(sharedSecret, transcriptHash.digest())
-    connection.set_keys(handshakeData[2], handshakeData[1])
-    transcriptHash.update(bytes(CERTIFICATE, "utf-8"))
-    connection.send_cert(CERTIFICATE)
-    verSig = verify(connection, transcriptHash.digest())
-    transcriptHash.update(verSig)
-    finishedKeys = get_finished_keys(handshakeData[3])
-    finishMsg = send_finished(connection, finishedKeys[1], transcriptHash.digest())
-    transcriptHash.update(finishMsg)
-    appSecrets = get_application_secrets(handshakeData[0],transcriptHash.digest())
-    clientFinish = connection.read_handshake()[0]
-    if not verify_finished(clientFinish, finishedKeys[0], transcriptHash.digest()):
+    transcriptHash.update(serverPriv.public_key().export_key(format="raw"))#add client and server hello to transcript hash
+    sharedSecret = key_agreement(eph_priv=serverPriv, eph_pub=clientPub, kdf=empty_kdf, static_priv=None, static_pub=None)#derive shared secret
+    handshakeData = get_handshake_keys(sharedSecret, transcriptHash.digest())#get handshake keys from shared secret
+    connection.set_keys(handshakeData[2], handshakeData[1])#set keys held in connection object to ensure future sent data is encrypted with the keys
+    transcriptHash.update(bytes(CERTIFICATE, "utf-8"))#update the transcript hash with certificate
+    connection.send_cert(CERTIFICATE)#send certificate
+    verSig = verify(connection, transcriptHash.digest())#sign transcript hash using certificate private key to create verify certificate message
+    transcriptHash.update(verSig)#update transcript hash
+    finishedKeys = get_finished_keys(handshakeData[3])#derive finished keys
+    finishMsg = send_finished(connection, finishedKeys[1], transcriptHash.digest())#create and send finished message
+    transcriptHash.update(finishMsg)#add finished message to transcript hash
+    appSecrets = get_application_secrets(handshakeData[0],transcriptHash.digest())#derive application traffic secrets
+    clientFinish = connection.read_handshake()[0]#get client finished
+    if not verify_finished(clientFinish, finishedKeys[0], transcriptHash.digest()):#verify client finished
         connection.close()
         raise ValueError("Invalid client Finished")
-    connection.set_secrets(appSecrets[1], appSecrets[0])
-    connection.keys_from_secrets()
-    connection.send("succ", ["handshake sucessfully established"])
+    connection.set_secrets(appSecrets[1], appSecrets[0])#set application traffic secrets
+    connection.keys_from_secrets()#derive keys from the new application secrets
+    connection.send("succ", ["handshake sucessfully established"])#send successfull message
     return
 
 
@@ -190,15 +190,15 @@ def encrypt_chacha20(plaintext, key, nonce, sequenceNumber, header):
 
 
 def decrypt_chacha20(ciphertext, key, expectedNonce):
-    header = ciphertext[:2]
-    nonce = ciphertext[2:14]
+    header = ciphertext[:4]
+    nonce = ciphertext[4:16]
     if nonce != expectedNonce:
         raise ValueError("Recieved message with incorrect sequence number")
     tag = ciphertext[-16:]
     cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
     try:
         cipher.update(header)
-        plaintext = cipher.decrypt_and_verify(ciphertext[14:-16], tag)
+        plaintext = cipher.decrypt_and_verify(ciphertext[16:-16], tag)
     except ValueError as e:
         ALERT_LOGGER.warn("Message authentication failed possibly tampered")
         raise e
@@ -217,7 +217,7 @@ def new_TOTP(username):
 
 
 def new_password(clientPassHash:str):
-    hasher = argon2.PasswordHasher(2, 800000, 4,64,32)
+    hasher = argon2.PasswordHasher(4, 256000, 4,64,32)
     hashedPassword = hasher.hash(clientPassHash)
     return(hashedPassword)
 
@@ -230,14 +230,13 @@ def get_pass (username):
 
 
 def check_pass(username, password):
-    start = datetime.now()
     try:
         currentPass = get_pass(username).decode("utf-8")
         authenticate = argon2.PasswordHasher().verify(currentPass, password)
-        print(datetime.now()-start)
         return authenticate
-    except:
-        print(datetime.now()-start, "hi")
+    except Exception as e:
+        if e.__module__ != argon2:
+            sleep(0.2)
         return False
 
 

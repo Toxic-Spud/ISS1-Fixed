@@ -91,7 +91,7 @@ class Communicate:
     #encrypts message and includes length of message as authenticated data
     def enc_data(self, res):
         try:
-            header = (len(res)+32).to_bytes(4,"big")
+            header = (len(res)+30).to_bytes(2,"big")
             res = encrypt_chacha20(res, self._senderKey[0], self._senderKey[1], self.senderSeqNum, header)
         except Exception as e:
             self.close()
@@ -133,7 +133,7 @@ class Communicate:
             payload = self.enc_data(self.sendBuffer)#will throw error if no keys so data will never accidently be sent in the clear
             print(f"Sending Encrypted data Data: {payload}\n\n\n")
         else:
-            payload = (len(self.sendBuffer)+2).to_bytes(4,"big") + self.sendBuffer
+            payload = (len(self.sendBuffer)+2).to_bytes(2,"big") + self.sendBuffer
         self._con.sendall(payload)
         self.sendBuffer = b""
         if self._updMsgQueued:
@@ -156,7 +156,7 @@ class Communicate:
         if data == b"":
             self.close()
             raise Exception("Session closed by server")
-        totLength = int.from_bytes(data[:4], "big")#get length of all the data
+        totLength = int.from_bytes(data[:2], "big")#get length of all the data
         result = data
         while len(result) < totLength:#keeps reading data until expected amount of data is read
             data = self._con.recv(min(1024,  totLength - len(result)))
@@ -164,7 +164,7 @@ class Communicate:
         if self._handshakePositiion >=2:#if client and server hello have happened the data needs to be decrypted
             result =self.dec_data(result)
         else:
-            result = result[4:]
+            result = result[2:]
         buffer = []
         i= -1
         while result != b"": #splits data up into its seperate messages and splits each message into the comCode and the data

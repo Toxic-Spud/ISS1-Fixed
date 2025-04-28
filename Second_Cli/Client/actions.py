@@ -9,7 +9,6 @@ from Crypto.Protocol import DH
 from Crypto.Hash import SHA256
 from os import urandom
 from base64 import b64encode, b64decode
-from base64 import *
 import hmac
 #from tpm import tpm_sign, gen_shared_secret
 from datetime import datetime
@@ -278,7 +277,7 @@ def revoke_key(connection:Communicate):
     while response.lower() != "b":
         print("\nRevoke user's  Signature Public Key (sign)\nRevoke user's communications Public Key(com)\nRevoke and rekey the database(data)\nRevoke servers current cert and generate new certificate (cert)")
         response = str(input("Enter Choice: ")).lower()
-        if response == "data":
+        if response == "data" or response == "cert":
             connection.send("revk", [response], "sessionId")
         elif response == "sign" or response == "com":
             target =  str(input("Enter Id of the User: ")).lower()
@@ -290,52 +289,7 @@ def revoke_key(connection:Communicate):
     return
 
 
-def set_key(connection:Communicate):
-    response = ""
-    while response.lower() != "b":
-        print("Set user's  Signature Public Key (sign)\nSet user's communications Public Key(com)\nBack (b)")
-        response = str(input("Enter Choice: ")).lower()
-        if response == "sign" or response == "com":
-            target =  str(input("Enter Id of the User: ")).lower()
-            try:
-                newKey = b64decode(str(input("Enter new key in base64")), validate=True)
-                connection.send("skey", [response, target, newKey], "sessionId")
-                reply = connection.get_message()
-                print(reply[1])
-                if reply[0] == "succ":
-                    return
-            except:
-                print("invalid key")
-    return
 
-
-def get_logs(connection:Communicate):
-    connection.send("glog", [], "sessionId")
-    infoLog = connection.get_message()
-    if infoLog[0]=="succ":
-        secLog = connection.get_message()
-    if infoLog[0] == "succ":
-        infoLog = infoLog[1:]
-        for i,line in enumerate(infoLog):
-            infoLog[i] = line.decode("utf-8")
-        f = open("info.log", "w")
-        f.writelines(infoLog)
-        f.close()
-    else:
-        print("failed to get logs")
-        return False
-    if secLog[0] == "succ":
-        secLog = secLog[1:]
-        for i,line in enumerate(secLog):
-            secLog[i] = line.decode("utf-8")
-        f = open("warning.log", "w")
-        f.writelines(secLog)
-        f.close()
-        print("All logs retrieved successfully")
-        return True
-    print("Couldnt get warning logs")
-    return False
-    
 
 
 def backup_rekey_database(connection:Communicate):
@@ -343,6 +297,10 @@ def backup_rekey_database(connection:Communicate):
     print(connection.get_message()[1])
     return
     
+
+
+
+
 
 def get_messages(connection:Communicate, customer=[], length=0):
     connection.send("getm", customer, "sessionId")
@@ -412,6 +370,7 @@ def employee_messages(connection:Communicate, userId):
     return
 
 
+
 def customer_messages(connection:Communicate, userId):
     try:
         secretKey, decryptedMessages = get_messages(connection, [])
@@ -440,6 +399,9 @@ def customer_messages(connection:Communicate, userId):
             except:
                 pass
     return
+
+
+
 
 
 def print_messages(messages, currentUserId):
@@ -472,32 +434,4 @@ def send_message(connection:Communicate, content:str, key:bytes, prevMsgHash:str
         print("Message sent successfully")
         return
 
-
-def deactive(connection:Communicate):
-    user = str(input("Enter User ID to Deactivate: "))
-    connection.send("deac", [user], "sessionId")
-    reply = connection.get_message()
-    if reply[0] != "succ":
-        if  len(reply) > 1:
-            print(f"Deactivation failed{reply[1]}")
-        else:
-            print("Deactivation failed due to error")
-        return
-    print("Account deactivated")
-
-
-def activate(connection:Communicate):
-    user = str(input("Enter User ID to activate: "))
-    connection.send("acti", [user], "sessionId")
-    reply = connection.get_message()
-    if reply[0] != "succ":
-        if  len(reply) > 1:
-            print(f"Activation failed{reply[1]}")
-        else:
-            print("Activation failed due to error")
-        return
-    print("Account activated")
-
-
-    
     

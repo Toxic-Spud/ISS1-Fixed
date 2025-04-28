@@ -19,6 +19,22 @@
             "program": "d:/Warwick/Year2/ISS/Client/main.py",
             "console": "integratedTerminal",
             "cwd": "d:/Warwick/Year2/ISS/Client"
+        },
+        {
+            "name": "Test Client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "d:/Warwick/Year2/ISS/Client/testComClient.py",
+            "console": "integratedTerminal",
+            "cwd": "d:/Warwick/Year2/ISS/Client"
+        },
+        {
+            "name": "Second Client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "d:/Warwick/Year2/ISS/Second_Cli/Client/main.py",
+            "console": "integratedTerminal",
+            "cwd": "d:/Warwick/Year2/ISS/Second_Cli/Client"
         }
     ]
 }

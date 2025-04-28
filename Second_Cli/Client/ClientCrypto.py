@@ -18,7 +18,7 @@ def slow_client_hash(password, username):
     saltGenerator = hashlib.sha256()
     saltGenerator.update(bytes(username, "utf-8"))
     userSalt = hashlib.sha256().digest()
-    hasher = argon2.PasswordHasher(10, 256000, 4,64,32)
+    hasher = argon2.PasswordHasher(10, 512000, 4,64,32)
     hashedPassword = hasher.hash(password, salt=userSalt)
     return(hashedPassword)
 
@@ -67,15 +67,15 @@ def encrypt_chacha20(plaintext, key, nonce, sequenceNumber, header):
 
 
 def decrypt_chacha20(ciphertext, key, expectedNonce):
-    header = ciphertext[:4]
-    nonce = ciphertext[4:16]
+    header = ciphertext[:2]
+    nonce = ciphertext[2:14]
     if nonce != expectedNonce:
         raise ValueError("Recieved message with incorrect sequence number")
     tag = ciphertext[-16:]
     cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
     try:
         cipher.update(header)
-        plaintext = cipher.decrypt_and_verify(ciphertext[16:-16], tag)
+        plaintext = cipher.decrypt_and_verify(ciphertext[14:-16], tag)
     except ValueError as e:
         print("Communication tampered with connection terminating")
         raise e
@@ -96,7 +96,7 @@ def hkdf_expand(key, info, length=32):
 
 
 def  hkdf_expand_label( key, info, transcript_hash, length=32):
-    HKDFLabel = int(256).to_bytes(2,"big") + b"tls13" +info+ transcript_hash
+    HKDFLabel = bytes(256) + b"tls13" +info+ transcript_hash
     result = hkdf_expand(key, HKDFLabel, length)
     return(result)
 
@@ -167,43 +167,43 @@ def get_application_secrets(handshakeSecret, transcript):
 
 
 def handshake(connection):
-    random, clientPriv = client_hello(connection)#sends hello and storres the private section of the key pair
-    transcriptHash = hashlib.sha256()#create transcript hash
-    serverHello = connection.read_handshake()#get the server hello
-    serverPub = ECC.import_key(encoded=(b'0*0\x05\x06\x03+en\x03!\x00'+serverHello[1]), curve_name="Curve25519")#import server public key
+    random, clientPriv = client_hello(connection)
+    transcriptHash = hashlib.sha256()
+    serverHello = connection.read_handshake()
+    serverPub = ECC.import_key(encoded=(b'0*0\x05\x06\x03+en\x03!\x00'+serverHello[1]), curve_name="Curve25519")#extra bytes added to conform raw public key to DER format
     transcriptHash.update(random)
     transcriptHash.update(clientPriv.public_key().export_key(format="raw"))
     transcriptHash.update(serverHello[0])
-    transcriptHash.update(serverHello[1])#added client hello and server hello to transcript hash
-    sharedSecret = key_agreement(eph_priv=clientPriv, eph_pub=serverPub, kdf=empty_kdf, static_priv=None, static_pub=None)#use ECDH to obtain shared secret
-    handshakeData = get_handshake_keys(sharedSecret, transcriptHash.digest())#get handshake keys
-    connection.set_keys(handshakeData[1], handshakeData[2])#set the keys used by the connection object to encrypt and decrypt data
-    cert = connection.read_handshake()[0].decode("utf-8")#get the certificate sent by server
-    transcriptHash.update(bytes(cert, "utf-8"))#add certificate to the transcript hash
+    transcriptHash.update(serverHello[1])
+    sharedSecret = key_agreement(eph_priv=clientPriv, eph_pub=serverPub, kdf=empty_kdf, static_priv=None, static_pub=None)
+    handshakeData = get_handshake_keys(sharedSecret, transcriptHash.digest())
+    connection.set_keys(handshakeData[1], handshakeData[2])
+    cert = connection.read_handshake()[0].decode("utf-8")
+    transcriptHash.update(bytes(cert, "utf-8"))
     try:
-        validCert = check_cert(cert)#checks certificate against public keys in the applications trusted root
+        validCert = check_cert(cert)
     except:
-        validCert = False #if check cert throws an error set valid cert to false
-    if not validCert:#if certificate isn't valid close connection and raise an error
+        validCert = False
+    if not validCert:
         print("Server Sent Invalid Certificate Connection Terminated")
         connection.close()
         raise ValueError("Invalid Certificate")
     cert = json.loads(cert)
-    serverPub = ECC.import_key(cert["subjectPublicKey"], curve_name="p256")#extract the public key from the certificate
-    verifySig = connection.read_handshake()[0]#get the verify certificate message
+    serverPub = ECC.import_key(cert["subjectPublicKey"], curve_name="p256")
+    verifySig = connection.read_handshake()[0]
     if not verify_signature(verifySig, serverPub, transcriptHash.digest()):
         connection.close()
-        raise ValueError("Invalid Signature")#if the signature in the verify certificate fails close connection and throw an error
-    transcriptHash.update(verifySig)#add verify cert to transcript hash
-    finishedKeys = get_finished_keys(handshakeData[3])#get keys for client finished
-    serverFinished = connection.read_handshake()[0]#get the server finished message
-    if not verify_finished(serverFinished, finishedKeys[1],transcriptHash.digest()):#verifies server finished using finished keys
+        raise ValueError("Invalid Signature")
+    transcriptHash.update(verifySig)
+    finishedKeys = get_finished_keys(handshakeData[3])
+    serverFinished = connection.read_handshake()[0]
+    if not verify_finished(serverFinished, finishedKeys[1],transcriptHash.digest()):
         connection.close()
-        raise ValueError("Finished message failed validation")#throws error if verification fails
-    transcriptHash.update(serverFinished)#adds server finished to transcript hash
-    send_finished(connection, finishedKeys[0], transcriptHash.digest())#creates and sends client finished
-    appSecrets = get_application_secrets(handshakeData[0],transcriptHash.digest())#derives application traffic secrets
-    connection.set_secrets(appSecrets[0], appSecrets[1])#sets the secrets stored in the connection object 
-    connection.keys_from_secrets()#derives keys from the secrets in the connection object 
-    print(connection.get_message())#should recieve successful handshake from the server
+        raise ValueError("Finished message failed validation")
+    transcriptHash.update(serverFinished)
+    send_finished(connection, finishedKeys[0], transcriptHash.digest())
+    appSecrets = get_application_secrets(handshakeData[0],transcriptHash.digest())
+    connection.set_secrets(appSecrets[0], appSecrets[1])
+    connection.keys_from_secrets()
+    print(connection.get_message())
     return 

@@ -41,8 +41,9 @@ def main():
                 elif choice.lower() == "msg":
                     customer_messages(connection, user["id"])
                 elif choice =="log":
-                    logout(connection)
-                    user = None
+                    confirmation = logout(connection)
+                    if confirmation:
+                        user = None
             elif user["role"] == "finance advisor":
                 print(f"View available stocks (stks) \nView assigned customers (ls cus)\nBuy Stocks (buy)\nSell Stocks (sell)\nSee History (hist) \nSee\\send messages(msg)\nLogout (log)")
                 choice = input("Enter choice: ").strip().lower()
@@ -57,34 +58,24 @@ def main():
                 elif choice.lower() == "msg":
                     employee_messages(connection, user["id"])
                 elif choice =="log":
-                    logout(connection)
+                    confirmation = logout(connection)
                     user = None
                 elif choice =="ls cus":
                     get_customers(connection)
             else:
-                print(f"Logout (out)")
-                print("Add employee (new)\nList Users (ls usr)\nAssign customer to finance advisor (asig)\nGet Logs (log)\nBackup database (back)\nRevoke Key (revk)")
-                print("Activate User (actv),\nDeactivate User (deac)")
+                print(f"Logout (log)")
+                print("Add employee (new)\nList Users (ls usrs)\nAssign customer to finance advisor (asig)")
                 choice = input("Enter choice: ").strip().lower()
-                if choice =="out":
+                if choice =="log":
                     confirmation = logout(connection)
-                    user = None
+                    if confirmation:
+                        user = None
                 elif choice =="new":
                     add_employee(connection)
                 elif choice =="ls usr":
                     get_users(connection)
                 elif choice =="asig":
                     assign_customer(connection)
-                elif choice =="log":
-                    get_logs(connection)
-                elif choice =="back":
-                    backup_rekey_database(connection)
-                elif choice =="revk":
-                    revoke_key(connection)
-                elif choice =="actv":
-                    activate(connection)
-                elif choice =="deac":
-                    deactive(connection)
                 
         except Exception as e:
             print(e)
