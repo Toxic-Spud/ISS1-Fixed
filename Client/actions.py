@@ -18,7 +18,8 @@ def log_in(connection:Communicate):
     reply = None
     retry = 'y'
     while retry.lower() != 'n':
-        print("LOG IN")
+        print("\n\nLOG IN")
+        print("------------------------------------------")
         userN = str(input("Enter username: "))
         passW = str(input("Enter password: "))
         totp = str(input("Enter TOTP: "))
@@ -28,6 +29,7 @@ def log_in(connection:Communicate):
         reply = connection.get_message()
         if reply[0] == "succ":
             connection.sessionId = reply[1].decode("utf-8")
+            print(reply[1].decode("utf-8"))
             return(json.loads(reply[2].decode("utf-8")))
         print(reply[1].decode("utf-8"))
     return None
@@ -52,7 +54,12 @@ def pass_req(password:str, confPass:str):
     if password.isupper():
         return "Password must contain at least 1 lowercase character"
     if password.isdigit():
-        return "Password must contain at least 1 uppercase and lowwercase letter"
+        return "Password must contain at least 1 uppercase and lowwercase letter and symbol"
+    for let in password:
+        if let.isdigit():
+            break
+    else:
+        return "Password needs at least one number"
     return True
 
 
@@ -72,9 +79,11 @@ def sign_up(connection):
     signKey = ECC.generate(curve="p256")
     comKey = ECC.generate(curve="p256")
     while reply != b"success":
-        print("SIGN UP")
+        print("\n\nSIGN UP")
+        print("------------------------------------------")
         print("Password must have >15 characters and <128 charactershave at least 1 uppercase, 1 lowercase, 1 number and 1 special character and be unique")
         print("Username must be >6 characters")
+        print("------------------------------------------")
         userN = str(input("Enter username: "))
         passW = str(input("Enter password: "))
         passConf = str(input("Enter Password Confirmation: "))
@@ -110,7 +119,9 @@ def get_stocks(connection:Communicate):
     stocks = connection.get_message()
     if stocks[0] !="fail":
         stocks = stocks[1:]
+        print("------------------------------------------")
         print_table([bytes(json.dumps(("ID","PRICE", "NAME")), "utf-8")] + stocks)
+        print("------------------------------------------")
     else:
         print(stocks[1].decode("utf-8"))
     return 
@@ -150,7 +161,9 @@ def get_history(connection:Communicate, account_id):
     if history[0] =="succ":
         history = history[1:]
         history = [b'["User", "Stock", "Quantity", "Buy/Sell", "total", "Time Stamp"]'] + history
+        print("\n\n------------------------------------------------------------------------------------")
         print_table(history)
+        print("------------------------------------------------------------------------------------")
     else:
         print(history[1].decode("utf-8"))
     return 
@@ -158,6 +171,8 @@ def get_history(connection:Communicate, account_id):
 
 
 def add_employee(connection:Communicate):
+    print("\n\nADD EMPLOYEE")
+    print("------------------------------------------")
     username = str(input("Enter the username for new employee: "))
     roles = {"a":"admin", "f":"finance advisor"}
     role =  str(input("Enter role fiancial advisor (f) or admin (a): ")).lower()
@@ -172,12 +187,17 @@ def add_employee(connection:Communicate):
     else:
         print("Failed to add employee")
 
+
+
+
+
 def employee_sign_up(connection:Communicate):
     reply = None
     signKey = ECC.generate(curve="p256")
     comKey = ECC.generate(curve="p256")
     while reply != b"succ":
-        print("SIGN UP")
+        print("\n\nEMPLOYEE SIGN UP")
+        print("------------------------------------------")
         print("Username must be >6 characters")
         userN = str(input("Enter username: "))
         code = str(input("Enter Code for New Employee Account: "))
@@ -216,7 +236,9 @@ def employee_sign_up(connection:Communicate):
 def assign_customer(connection:Communicate):
     choice = None
     while choice != "b":
-        print("Assigning customer to finance officer (enter b for back)")
+        print("\n\nAssign customer to finance officer")
+        print("------------------------------------------")
+        print("enter b for back")
         employee = str(input("Enter emplyee ID: ")).lower()
         customer = str(input("Enter customer ID: ")).lower()
         if customer == "b" or employee == "b":
@@ -276,7 +298,10 @@ def get_customers(connection:Communicate):
 def revoke_key(connection:Communicate):
     response = ""
     while response.lower() != "b":
-        print("\nRevoke user's  Signature Public Key (sign)\nRevoke user's communications Public Key(com)\nRevoke and rekey the database(data)\nRevoke servers current cert and generate new certificate (cert)")
+        print("REVOKE KEY")
+        print("\n\n------------------------------------------")
+        print("\nRevoke user's  Signature Public Key (sign)\nRevoke user's communications Public Key(com)\nRevoke and rekey the database(data)\nRevoke servers current cert and generate new certificate (cert)\nGo Back (b)")
+        print("------------------------------------------")
         response = str(input("Enter Choice: ")).lower()
         if response == "data":
             connection.send("revk", [response], "sessionId")
@@ -293,7 +318,10 @@ def revoke_key(connection:Communicate):
 def set_key(connection:Communicate):
     response = ""
     while response.lower() != "b":
+        print("SET KEYS")
+        print("\n\n------------------------------------------")
         print("Set user's  Signature Public Key (sign)\nSet user's communications Public Key(com)\nBack (b)")
+        print("------------------------------------------")
         response = str(input("Enter Choice: ")).lower()
         if response == "sign" or response == "com":
             target =  str(input("Enter Id of the User: ")).lower()
@@ -331,7 +359,7 @@ def get_logs(connection:Communicate):
         f = open("warning.log", "w")
         f.writelines(secLog)
         f.close()
-        print("All logs retrieved successfully")
+        print("All logs retrieved successfully check files")
         return True
     print("Couldnt get warning logs")
     return False
@@ -387,14 +415,19 @@ def employee_messages(connection:Communicate, userId):
         secretKey, decryptedMessages = get_messages(connection, [customerId])
     except:
         return
+    print("\nMESSAGES")
+    print("------------------------------------------")
     print_messages(decryptedMessages, userId)
+    print("------------------------------------------")
     choice = None
     while choice != "b":
         if len(decryptedMessages) > 0:
             prevMsgHash = SHA256.new(bytes(json.dumps(decryptedMessages[-1:][0][2]), "utf-8")).digest()
         else:
             prevMsgHash = SHA256.new(b"").digest()
+        print("\n------------------------------------------")
         print("Send message (s)\nView messages again (v)\nBack (b)")
+        print("------------------------------------------")
         choice = str(input("Enter Choice: ")).lower()
         if choice == "s":
             newMessage = str(input("Enter message: "))
@@ -403,10 +436,13 @@ def employee_messages(connection:Communicate, userId):
         elif choice == "v":
             try:
                 secretKey, res = get_messages(connection, [customerId], length=len(decryptedMessages))
+                print("\nMESSAGES")
+                print("------------------------------------------")
                 if res ==[]:
                     print_messages(decryptedMessages, userId)
                 else:
                     print_messages(res, userId)
+                print("------------------------------------------")
             except:
                 pass
     return
@@ -417,7 +453,10 @@ def customer_messages(connection:Communicate, userId):
         secretKey, decryptedMessages = get_messages(connection, [])
     except:
         return
+    print("\nMESSAGES")
+    print("------------------------------------------")
     print_messages(decryptedMessages, userId)
+    print("------------------------------------------")
     choice = None
     while choice != "b":
         if len(decryptedMessages) > 0:
@@ -474,6 +513,8 @@ def send_message(connection:Communicate, content:str, key:bytes, prevMsgHash:str
 
 
 def deactive(connection:Communicate):
+    print("\nDEACTIVATE USER")
+    print("------------------------------------------")
     user = str(input("Enter User ID to Deactivate: "))
     connection.send("deac", [user], "sessionId")
     reply = connection.get_message()
@@ -487,6 +528,8 @@ def deactive(connection:Communicate):
 
 
 def activate(connection:Communicate):
+    print("\nACTIVATE USER")
+    print("------------------------------------------")
     user = str(input("Enter User ID to activate: "))
     connection.send("acti", [user], "sessionId")
     reply = connection.get_message()

@@ -14,10 +14,11 @@ def main():
     while choice != 'q':
         try:
             if not user:
-                print("Welcome to Finance Tracker!")
+                print("\n\nWelcome to Finance Incorporated!")
+                print("------------------------------------------")
                 print("Sign up (s)\nLog in (l)\nEmployee Sign up (e)")
-                print("Enter s, l or e: ")
-                choice = input().strip().lower()
+                print("------------------------------------------")
+                choice = input("Enter s, l or e: ").strip().lower()
                 if choice == 's':
                     sign_up(connection)
                 elif choice == 'l':
@@ -26,9 +27,11 @@ def main():
                 elif choice == "e":
                     employee_sign_up(connection)
                 else:
-                    print("Invalid choice. Please enter 's' for sign up or 'l' for log in.")
+                    print("Invalid choice")
             elif user["role"] == "customer":
+                print("\n\n------------------------------------------")
                 print(f"View available stocks (stks) \nBuy Stocks (buy)\nSell Stocks (sell)\nSee History (hist) \nSee\\send messages(msg)\nLogout (log)")
+                print("------------------------------------------")
                 choice = input("Enter choice: ").strip().lower()
                 if choice.lower() == "stks":
                     get_stocks(connection)
@@ -44,7 +47,9 @@ def main():
                     logout(connection)
                     user = None
             elif user["role"] == "finance advisor":
+                print("\n\n------------------------------------------")
                 print(f"View available stocks (stks) \nView assigned customers (ls cus)\nBuy Stocks (buy)\nSell Stocks (sell)\nSee History (hist) \nSee\\send messages(msg)\nLogout (log)")
+                print("------------------------------------------")
                 choice = input("Enter choice: ").strip().lower()
                 if choice.lower() == "stks":
                     get_stocks(connection)
@@ -62,9 +67,11 @@ def main():
                 elif choice =="ls cus":
                     get_customers(connection)
             else:
+                print("\n\n------------------------------------------")
                 print(f"Logout (out)")
                 print("Add employee (new)\nList Users (ls usr)\nAssign customer to finance advisor (asig)\nGet Logs (log)\nBackup database (back)\nRevoke Key (revk)")
                 print("Activate User (actv),\nDeactivate User (deac)")
+                print("------------------------------------------")
                 choice = input("Enter choice: ").strip().lower()
                 if choice =="out":
                     confirmation = logout(connection)

@@ -12,13 +12,13 @@ import json
 import base64
 from Crypto.Hash import SHA256, HMAC
 from datetime import datetime
-
+from tpm import *
 
 def slow_client_hash(password, username):
-    saltGenerator = hashlib.sha256()
+    saltGenerator = hashlib.sha256()#use username as salt
     saltGenerator.update(bytes(username, "utf-8"))
-    userSalt = hashlib.sha256().digest()
-    hasher = argon2.PasswordHasher(10, 256000, 4,64,32)
+    userSalt = saltGenerator.digest()
+    hasher = argon2.PasswordHasher(10, 256000, 4,64,32)#high argon2 parameters stop shucking
     hashedPassword = hasher.hash(password, salt=userSalt)
     return(hashedPassword)
 
@@ -27,8 +27,10 @@ def check_cert(cert):
     caPublicKey = ECC.import_key(open("TrustedRoot.txt", "r").read(), curve_name="p256")
     verif = DSS.new(caPublicKey, "fips-186-3")
     cert = json.loads(cert)
-    if cert["subject"] != "Finance Company ltd" or cert["issuer"] != "Simulated CA" or datetime.strptime(cert["notBefore"], "%Y-%m-%d") > datetime.now() or datetime.strptime(cert["notAfter"], "%Y-%m-%d") < datetime.now() or "subjectPublicKey" not in cert:
-        return False
+    if (cert["subject"] != "Finance Company ltd" or cert["issuer"] != "Simulated CA" 
+        or datetime.strptime(cert["notBefore"], "%Y-%m-%d") > datetime.now() 
+        or datetime.strptime(cert["notAfter"], "%Y-%m-%d") < datetime.now() 
+        or "subjectPublicKey" not in cert): return False
     sig = base64.b64decode(cert.pop("signature"))
     hash = SHA256.new(bytes(json.dumps(cert), "utf-8"))
     try:
@@ -110,9 +112,9 @@ def empty_kdf(input):
 
 def get_handshake_keys(sharedSecret, transcript):
     handShakeSecret = hkdf_extract(sharedSecret, b"")
-    clientShakeSecret = hkdf_expand_label(handShakeSecret, b"c hs traffic", transcript, 32)
+    clientShakeSecret = hkdf_expand_label(handShakeSecret, b"c hs traffic", transcript, 32)#derive handshake secrets
     serverShakeSecret = hkdf_expand_label(handShakeSecret, b"s hs traffic", transcript, 32)
-    clientShakeKey = hkdf_expand_label(clientShakeSecret, b"key", b"", 32)
+    clientShakeKey = hkdf_expand_label(clientShakeSecret, b"key", b"", 32)#deriving hadshake keys
     clientShakeIV = hkdf_expand_label(clientShakeSecret, b"iv", b"", 12)
     serverShakeKey = hkdf_expand_label(serverShakeSecret, b"key", b"", 32)
     serverShakeIV = hkdf_expand_label(serverShakeSecret, b"iv", b"", 12)
@@ -132,7 +134,9 @@ def client_hello(connection):
 
 
 def verify_signature(sig, pub, transcript):
-    signedData = SHA256.new(bytes("TLS 1.3, server CertificateVerify", "utf-8") + b"\x00" + transcript)
+    signedData = bytes("TLS 1.3, server CertificateVerify", "utf-8") + b"\x00" + transcript
+    verified = tpm_verify_signature(sig, signedData, pub)
+    return verified
     verifier = DSS.new(pub, "fips-186-3")
     try:
         verifier.verify(signedData, sig)
@@ -155,8 +159,8 @@ def verify_finished(hashMac, key, transcript):
     try:
         verifier.verify(hashMac)
         return(True)
-    except:
-        return(False)
+    except:#verify throws error if invalid
+        return(False)#return false if in valid
 
 def get_application_secrets(handshakeSecret, transcript):
     derived = hkdf_expand_label(handshakeSecret, b"derived", b"", 32)
@@ -189,7 +193,7 @@ def handshake(connection):
         connection.close()
         raise ValueError("Invalid Certificate")
     cert = json.loads(cert)
-    serverPub = ECC.import_key(cert["subjectPublicKey"], curve_name="p256")#extract the public key from the certificate
+    serverPub = bytes(cert["subjectPublicKey"], "utf-8")#extract the public key from the certificate
     verifySig = connection.read_handshake()[0]#get the verify certificate message
     if not verify_signature(verifySig, serverPub, transcriptHash.digest()):
         connection.close()

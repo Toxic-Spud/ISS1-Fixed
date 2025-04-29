@@ -2,7 +2,7 @@
 from time import sleep
 from random import randint
 from ServerCrypto import check_pass
-from Lockout import IP_LOCKOUT, IP_USER_LOCKOUT, USER_LOCKOUT
+from Lockout import IP_LOCKOUT, USER_LOCKOUT
 from database import AUTH_DATA_BASE, User
 from log import INFO_LOGGER, ALERT_LOGGER
 import hashlib
@@ -121,12 +121,9 @@ def verify_TOTP(username, totp):
     try:
         secret = AUTH_DATA_BASE.get_user_secret(username)
     except:
-        return(False)
+        return(False)#return false if user doesn't have a secret
     TotpVerfier = TOTP(secret, interval=30, digits=8, digest=hashlib.sha256)
-    if USER_LOCKOUT.is_locked(username):
-        USER_LOCKOUT.record_attempt(username)
-        return False
-    if not TotpVerfier.at(dTime.now()) == totp:
+    if not TotpVerfier.at(dTime.now()) == totp:#check if totp is correct
         return False
     return True
 
@@ -152,14 +149,14 @@ def login(connection:Communicate, username:bytes, password:bytes, totp:bytes):
         sleep(randint(1,3)/20)#mitigate timing attacks
         connection.send("fail", ["Username, password or totp incorrect"])
         return False
-    INFO_LOGGER.info(f"User {username} from {ip} passed first authentication step.")
     success = verify_TOTP(username, totp)#check provided TOTP with expected
     if not success:
         IP_LOCKOUT.record_attempt(ip)
         USER_LOCKOUT.record_attempt(username)
         connection.send("fail", ["Username, password or totp incorrect"])
+        INFO_LOGGER.info(f"User {username} from {ip} failed 2FA")
         return False
-    INFO_LOGGER.info(f"User {username} from {ip} passed second authentication step.")
+    INFO_LOGGER.info(f"User {username} from {ip} has logged in")
     id = connection.new_session_id(username)
     if id == False:#if an error occurs when creating session token
         connection.send("fail", ["An error occured please contact administration if this persists"])
@@ -175,7 +172,7 @@ def login(connection:Communicate, username:bytes, password:bytes, totp:bytes):
 
 def sign_up(connection:Communicate,username:str, password:str, comKey:bytes, sigKey:bytes):
     if IP_LOCKOUT.is_locked(connection.addr[0]):
-        connection.send("fail", ["Invalid username or password"])
+        connection.send("fail", ["Locked Out"])
         return False
     if username == None or password == None:
         connection.send("fail", ["Invalid username or password"])
@@ -201,7 +198,7 @@ def employee_sign_up(connection:Communicate, code, username, password, comKey:by
     codeHash  = AUTH_DATA_BASE.check_code(username)
     check = check_code(code, codeHash)
     if IP_LOCKOUT.is_locked(connection.addr[0]):
-        connection.send("fail", ["Invalid code or username please contact admin if you believe the code to be correct"])
+        connection.send("fail", ["Locked Out"])
         return False
     if not check:
         connection.send("fail", ["Invalid code or username please contact admin if you believe the code to be correct"])

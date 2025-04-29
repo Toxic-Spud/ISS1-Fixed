@@ -1,12 +1,9 @@
 import argon2
 from os import urandom
-
 from hkdf import hkdf_expand as h_exp, hkdf_extract as h_ext
-from hkdf import hmac
 from database import AUTH_DATA_BASE
 from log import ALERT_LOGGER
 from time import sleep
-
 import base64
 from Crypto.Cipher import ChaCha20_Poly1305
 from Crypto.PublicKey import ECC
@@ -18,6 +15,7 @@ import json
 from datetime import datetime, timedelta
 from random import SystemRandom
 import string
+from tpm import *
 
 
 CA = ECC.import_key(b'0\x81\x87\x02\x01\x000\x13\x06\x07*\x86H\xce=\x02\x01\x06\x08*\x86H\xce=\x03\x01\x07\x04m0k\x02\x01\x01\x04 9\x04R\xc4\xc7\x81\xd6\x06\xee\xd7\xcf`\x92\x8d\xed\xe5\x9eHj\xa2\x8a\xa8\xbc\x8b\xdb7bJ\xec@\x99;\xa1D\x03B\x00\x04\xff\xeb\x91\x18\xe89g\xadWR\xf5\xb8\x86%\x1bt1\xb1\xbfs\xdd\x11\xe1\xb2p\x17\x84\x1f\xf9<DMc)\xc8\x94(S\xac\xbf\x01\xeb\xad\xd6\xc1`#\xff:B\x9fG6\xed\xba\x94FmI\x00\xde\xf3?\xd2')
@@ -43,11 +41,9 @@ def check_cert(cert):
     except: 
         return False
 
-
-
 PRIVATE_KEY = ECC.generate(curve="p256")
 SIGN = DSS.new(PRIVATE_KEY, "fips-186-3")
-PUBLIC_KEY = PRIVATE_KEY.public_key().export_key(format="PEM")
+PUBLIC_KEY = generate_ecc_keypair().decode("utf-8")
 CERTIFICATE = create_certificate("Finance Company ltd", str((datetime.now()-timedelta(days=1)).date()), str((datetime.now()+timedelta(days=(365*5))).date()), PUBLIC_KEY)
 
 #wrapper to ensure that sha256 is used for HKDF
@@ -108,8 +104,8 @@ def server_hello(connection):
 
 
 def verify(connection, transcript):
-    signedData = SHA256.new(bytes("TLS 1.3, server CertificateVerify", "utf-8") + b"\x00" + transcript)
-    signature = SIGN.sign(signedData)
+    signedData = bytes("TLS 1.3, server CertificateVerify", "utf-8") + b"\x00" + transcript
+    signature = tpm_sign(signedData)
     connection.send_verify(signature)
     return signature
 
@@ -120,11 +116,11 @@ def get_finished_keys(secrets):
     serverFinishedKey = hkdf_expand_label(secrets[1],b"finished",b"", 32)
     return (clientFinishedKey, serverFinishedKey)
 
-
 def send_finished(connection, key, transcript):
     hashMac = HMAC.new(key, transcript, SHA256).digest()
     connection.send_finish(hashMac)
     return hashMac
+
 
 def verify_finished(hashMac, key, transcript):
     verifier = HMAC.new(key, transcript, SHA256)
@@ -181,12 +177,14 @@ def handshake(connection):
 
 
 def encrypt_chacha20(plaintext, key, nonce, sequenceNumber, header):
-    nonce = bytes(abyte ^ bbyte for abyte, bbyte in zip(nonce, sequenceNumber.to_bytes(12, 'big')))
+    nonce = bytes(abyte ^ bbyte for abyte, bbyte in zip(nonce, sequenceNumber.to_bytes(12, 'big')))#xor nonce and sequence number 
     cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
-    cipher.update(header)
+    cipher.update(header)#ensures header is authenticated by poly1305 tag
     ciphertext, tag = cipher.encrypt_and_digest(plaintext)
     payload = header + nonce + ciphertext + tag
     return payload
+
+
 
 
 def decrypt_chacha20(ciphertext, key, expectedNonce):
@@ -223,7 +221,7 @@ def new_password(clientPassHash:str):
 
 
 def get_pass (username):
-    passW = AUTH_DATA_BASE.get_user_password(username)
+    passW = AUTH_DATA_BASE.get_user_password(username)#get users password
     if passW == None:
         raise Exception("User doesn't exist")
     return(passW)
@@ -234,9 +232,9 @@ def check_pass(username, password):
         currentPass = get_pass(username).decode("utf-8")
         authenticate = argon2.PasswordHasher().verify(currentPass, password)
         return authenticate
-    except Exception as e:
+    except Exception as e:#if get pass or verify throws an error
         if e.__module__ != argon2:
-            sleep(0.2)
+            sleep(0.2)#mitigiate timing attacks
         return False
 
 

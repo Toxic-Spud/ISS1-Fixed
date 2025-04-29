@@ -21,7 +21,7 @@ def print(*args):
 
 class Communicate:
 
-    def __init__(self, bindAddress='localhost', bindPort=6666, timeout=120):
+    def __init__(self, bindAddress='127.0.0.1', bindPort=6663, timeout=120):
         print("Binding to address:", bindAddress, "and port:", bindPort)
         self.bindAddress = bindAddress#address to listen on
         self.bindPort = bindPort#port to listen on
@@ -58,12 +58,11 @@ class Communicate:
             return None
         data = self.sessionData[sessionId]
         inactiveTime = datetime.now() - data["lastAction"]
-        if inactiveTime > timedelta(minutes=5) or (datetime.now() - data["sessionStart"]) > timedelta(hours=24):#checks that session shouldn't be timed out due to inactivity or session expiry
-            self.end_session(sessionId)
+        if inactiveTime > timedelta(minutes=5) or (datetime.now() - data["sessionStart"]) > timedelta(hours=24):
+            self.end_session(sessionId)#checks that session shouldn't be timed out due to inactivity or session expiry
             return None
+        self.record_activity(sessionId)
         return(data)
-
-
 
     #updates session activity
     def record_activity(self, sessionId:str):
@@ -180,7 +179,7 @@ class Communicate:
         try:            
             res = decrypt_chacha20(data, self._recieverKey[0], expectedNonce)
         except Exception as e:
-            self.close()
+            self.close()#if integrity check or expected nonce fail catch error and terminate cconnection
             raise e
         self.recieverSeqNum += 1
         return res
@@ -205,7 +204,7 @@ class Communicate:
             payload = self.enc_data(self.sendBuffer)#will throw error if no keys so data will never accidently be sent in the clear
             print(f"Sending Encrypted data Data: {payload}\n\n\n")
         else:
-            payload = (len(self.sendBuffer)+2).to_bytes(4,"big") + self.sendBuffer
+            payload = (len(self.sendBuffer)+4).to_bytes(4,"big") + self.sendBuffer
         self._con.sendall(payload)
         self.sendBuffer = b""
         if self._updMsgQueued:
@@ -236,21 +235,22 @@ class Communicate:
         else:
             result = result[4:]
         buffer = []
+        print(f"Recieving encrypted data: {result}: \n\n\n")
         i= -1
-        while result != b"": #splits data up into its seperate messages and splits each message into the comCode and the data
+        while result != b"": #splits data into seperate messages and splits messages into headers and data
             if result[0] == self._delimiter[0]:
                 buffer.append([])
                 i += 1
                 buffer[i].append(result[1:5].decode("utf-8"))
                 if buffer[i][0] == "upda" and self._handshakePositiion >= 6:
-                    self.rekey()
+                    self.rekey()#if message is an update message rekey session
                 result = result[5:]
             else:
                 dataLen = int.from_bytes(result[:2], "big")
                 result = result[3:]
                 buffer[i].append(result[:dataLen])
                 result = result[dataLen:]
-        print(f"Recieving data: {buffer}: \n\n\n")
+        print(f"Decrypted data: {buffer}: \n\n\n")
         self.recvBuffer = buffer
         return
     
@@ -271,13 +271,11 @@ class Communicate:
     def get_message(self):
         if len(self.recvBuffer) <= 0:
             self.recv_buffer()
-        if len(self.recvBuffer) <= 0:
-            raise IndexError("No messages in the buffer")
         msg = self.recvBuffer[0]
-        self.recvBuffer = self.recvBuffer[1:]
+        self.recvBuffer = self.recvBuffer[1:]#removes the first msg from buffer
         if msg[0] == "upda":
             return self.get_message()
-        return(msg)
+        return(msg)#returns the first message in the buffer
 
 
     #Reads the next msg in the handshake

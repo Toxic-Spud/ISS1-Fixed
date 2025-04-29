@@ -4,6 +4,8 @@ import shutil
 import datetime
 from Crypto.Cipher import AES
 from hashlib import pbkdf2_hmac
+import os
+
 
 class User:
     def __init__(self, id, username, role, active, code, sign_key, date):
@@ -392,8 +394,11 @@ class CustomDataBase:
         return True
     
 
-passW = bytes(str(input("Enter Database Password: ")), "utf-8")
-kek = pbkdf2_hmac("sha256",passW,b'\xfb\xaca\x11\xaf\x8c\xa8\x9b\x98\xff\xa3R\x919\x9f*', 3000000, 32)
+passW = bytes(str(input("\nEnter Database Password: ")), "utf-8")
+os.system('cls' if os.name == 'nt' else 'clear')
+time = datetime.datetime.now()
+kek = pbkdf2_hmac("sha256",passW,b'\xfb\xaca\x11\xaf\x8c\xa8\x9b\x98\xff\xa3R\x919\x9f*', 10000000, 32)
+print(print(str(datetime.datetime.now()-time)))
 AUTH_DATA_BASE = CustomDataBase("Authenticate.db", kek)
 
 

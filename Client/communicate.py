@@ -1,12 +1,25 @@
 import socket
 from ClientCrypto import encrypt_chacha20, decrypt_chacha20, handshake, hkdf_expand_label
+from os import write
+from datetime import datetime
+DEMONSTRATION = False
 
+def print(*args):
+    if DEMONSTRATION:
+        buffer = b""
+        for arg in args: buffer += bytes(str(arg), "utf-8") 
 
+        write(1,buffer+b"\n")
+    return
 
+time = datetime.now()
 
 class Communicate:
 
-    def __init__(self, bindAddress='localhost', bindPort=6666, timeout=120):
+
+    
+
+    def __init__(self, bindAddress='localhost', bindPort=6663, timeout=120):
         self._targetAddress = bindAddress
         self._targetPort = bindPort
         self.timeout = timeout
@@ -91,10 +104,10 @@ class Communicate:
     #encrypts message and includes length of message as authenticated data
     def enc_data(self, res):
         try:
-            header = (len(res)+32).to_bytes(4,"big")
+            header = (len(res)+32).to_bytes(4,"big")#header records length of tls record
             res = encrypt_chacha20(res, self._senderKey[0], self._senderKey[1], self.senderSeqNum, header)
         except Exception as e:
-            self.close()
+            self.close() #if encryption fails close connection
             raise e
         self.senderSeqNum += 1
         return res
@@ -129,23 +142,25 @@ class Communicate:
     #Sends data in buffer
     def send_buffer(self):
         if self._handshakePositiion >= 2:
-            print(f"Encrypting Data: {self.sendBuffer}\n\n\n")
+            print(f"Encrypting Data: {self.sendBuffer}\n\n\n")#to show encryption
             payload = self.enc_data(self.sendBuffer)#will throw error if no keys so data will never accidently be sent in the clear
             print(f"Sending Encrypted data Data: {payload}\n\n\n")
         else:
-            payload = (len(self.sendBuffer)+2).to_bytes(4,"big") + self.sendBuffer
+            payload = (len(self.sendBuffer)+4).to_bytes(4,"big") + self.sendBuffer
         self._con.sendall(payload)
         self.sendBuffer = b""
-        if self._updMsgQueued:
+        if self._updMsgQueued:#if sending update message update current keys
             self.rekey()
         return
     
     #wrapper around add_to_buffer() and send_buffer()
     def send(self, action, data, id=None):
-        if id:
+        if id:#automatically adds stored session ID if caller specifies ID
             data.append(self.sessionId)
         self.add_to_buffer(action, data)
         self.send_buffer()
+        global time
+        time = datetime.now()
         return
 
 
@@ -181,14 +196,13 @@ class Communicate:
                 buffer[i].append(result[:dataLen])
                 result = result[dataLen:]
         self.recvBuffer = buffer
-        print(f"Recieving data: {buffer} \n\n\n")
+        print(f"Decrypted data: {buffer} \n\n\n")
         return
     
 
     
     def initiate_handshake(self):
         return handshake(self)
-    
 
     #gets msg from the buffer, calls recv_buffer() if no messages in buffer 
     #skips over upda msgs as they are handled by send_buffer, and recv_buffer
@@ -201,6 +215,10 @@ class Communicate:
         self.recvBuffer = self.recvBuffer[1:]
         if msg[0] == "upda":
             return self.get_message()
+        try:
+            write(1, bytes(str(datetime.now()-time)+"\n", "utf-8"))
+        except:
+            pass
         return(msg)
 
 

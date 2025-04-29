@@ -8,17 +8,17 @@
             "name": "Debug Server",
             "type": "debugpy",
             "request": "launch",
-            "program": "d:/Warwick/Year2/ISS/Server/main.py",
+            "program": "/home/ryan/final/ISS/Server/main.py",
             "console": "integratedTerminal",
-            "cwd": "d:/Warwick/Year2/ISS/Server"
+            "cwd": "/home/ryan/final/ISS/Server"
         },
         {
             "name": "Debug Client",
             "type": "debugpy",
             "request": "launch",
-            "program": "d:/Warwick/Year2/ISS/Client/main.py",
+            "program": "/home/ryan/final/ISS/Client/main.py",
             "console": "integratedTerminal",
-            "cwd": "d:/Warwick/Year2/ISS/Client"
+            "cwd": "/home/ryan/final/ISS/Client"
         },
         {
             "name": "Test Client",
