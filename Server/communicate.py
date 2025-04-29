@@ -26,6 +26,7 @@ class Communicate:
         self.bindAddress = bindAddress#address to listen on
         self.bindPort = bindPort#port to listen on
         self.timeout = timeout
+        
         self.bind()
         self.addr = None#address of the connecting client
         self.usersWithSessions = {}#stores the session id of each logged in user used to remove all sessions of a given user
@@ -47,6 +48,7 @@ class Communicate:
 
     def bind(self):
         self._con = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._con.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._con.bind((self.bindAddress, self.bindPort))
         self._con.settimeout(self.timeout)
         self._con.listen(1)
@@ -116,6 +118,7 @@ class Communicate:
         self.recieverSeqNum = 0
         self._handshakePositiion = 0
         try:
+            self._con.shutdown()
             self._con.close()
         except:
             print("Socket already closed")

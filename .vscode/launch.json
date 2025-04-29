@@ -5,36 +5,22 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Server",
+            "name": "server",
             "type": "debugpy",
             "request": "launch",
-            "program": "/home/ryan/final/ISS/Server/main.py",
+            "program": "/home/ubuntu/ISS1-Fixed/Server/main.py",
             "console": "integratedTerminal",
-            "cwd": "/home/ryan/final/ISS/Server"
+            "cwd": "/home/ubuntu/ISS1-Fixed/Server"
         },
         {
-            "name": "Debug Client",
+            "name": "client",
             "type": "debugpy",
             "request": "launch",
-            "program": "/home/ryan/final/ISS/Client/main.py",
+            "program": "/home/ubuntu/ISS1-Fixed/Client/main.py",
             "console": "integratedTerminal",
-            "cwd": "/home/ryan/final/ISS/Client"
-        },
-        {
-            "name": "Test Client",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "d:/Warwick/Year2/ISS/Client/testComClient.py",
-            "console": "integratedTerminal",
-            "cwd": "d:/Warwick/Year2/ISS/Client"
-        },
-        {
-            "name": "Second Client",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "d:/Warwick/Year2/ISS/Second_Cli/Client/main.py",
-            "console": "integratedTerminal",
-            "cwd": "d:/Warwick/Year2/ISS/Second_Cli/Client"
+            "cwd": "/home/ubuntu/ISS1-Fixed/Client"
         }
     ]
+    
+
 }
